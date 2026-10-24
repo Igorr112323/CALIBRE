@@ -1,0 +1,62 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - arena/95c59e81-calibre
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-debug-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out the session branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+          cache-dependency-path: mobile/android/**/*.gradle*
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform and build tools
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Install JavaScript dependencies and sync Capacitor
+        working-directory: mobile
+        run: |
+          npm ci
+          npm run cap:sync
+
+      - name: Build debug APK
+        working-directory: mobile/android
+        run: |
+          bash ./gradlew --no-daemon assembleDebug
+          mkdir -p ../../dist
+          cp app/build/outputs/apk/debug/app-debug.apk ../../dist/CALIBRE-debug.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CALIBRE-debug-apk
+          path: dist/CALIBRE-debug.apk
+          if-no-files-found: error
+          retention-days: 30

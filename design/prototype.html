@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>АгроНастрой — прототип</title>
+<style>
+  :root{
+    --g:#2e7d32; --g2:#43a047; --gl:#e8f5e9; --y:#f9a825; --yl:#fff8e1;
+    --r:#c62828; --rl:#ffebee; --t:#1b1f1d; --m:#5f6b64; --b:#e3e8e4; --bg:#eef2ef;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#cfd8d2;color:var(--t);
+       display:flex;justify-content:center;align-items:flex-start;min-height:100vh;padding:20px 8px}
+  .phone{width:390px;max-width:100%;height:800px;background:var(--bg);border-radius:34px;overflow:hidden;
+         box-shadow:0 20px 50px rgba(0,0,0,.25);border:10px solid #1b1f1d;display:flex;flex-direction:column;position:relative}
+  header{background:var(--g);color:#fff;padding:14px 16px 12px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+  header .back{background:none;border:none;color:#fff;font-size:22px;cursor:pointer;width:28px;visibility:hidden}
+  header .back.show{visibility:visible}
+  header h1{font-size:17px;font-weight:600;flex:1;line-height:1.2}
+  header small{display:block;font-weight:400;opacity:.85;font-size:12px}
+  .logo{font-weight:800;letter-spacing:.3px}
+  main{flex:1;overflow-y:auto;padding:14px}
+  .screen{display:none}.screen.active{display:block}
+  .search{display:flex;align-items:center;background:#fff;border-radius:14px;padding:10px 12px;gap:8px;
+          border:1.5px solid var(--b);margin-bottom:6px}
+  .search input{border:none;outline:none;font-size:15px;flex:1;background:transparent}
+  .hint{font-size:11.5px;color:var(--m);margin:0 4px 12px}
+  .card{background:#fff;border-radius:14px;padding:14px;margin-bottom:10px;border:1px solid var(--b)}
+  .mach{display:flex;gap:12px;align-items:center;cursor:pointer}
+  .mach .ic{width:52px;height:52px;border-radius:12px;background:var(--gl);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .mach h3{font-size:15px}.mach p{font-size:12.5px;color:var(--m);margin-top:2px}
+  .mach.off{opacity:.45;cursor:default}
+  .badge{display:inline-block;font-size:10.5px;padding:2px 7px;border-radius:20px;background:var(--gl);color:var(--g);font-weight:600;margin-top:4px}
+  .badge.soon{background:#eceff1;color:#78909c}
+  .sec{font-size:12px;font-weight:700;color:var(--m);text-transform:uppercase;letter-spacing:.5px;margin:16px 4px 8px}
+  .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px;border-radius:14px;border:none;
+       font-size:15px;font-weight:600;cursor:pointer;background:var(--g);color:#fff}
+  .btn.ghost{background:#fff;color:var(--g);border:1.5px solid var(--g)}
+  .tabs{display:flex;background:#fff;border-radius:12px;padding:4px;margin-bottom:12px;border:1px solid var(--b)}
+  .tabs button{flex:1;border:none;background:none;padding:9px 4px;border-radius:9px;font-size:13px;font-weight:600;color:var(--m);cursor:pointer}
+  .tabs button.on{background:var(--g);color:#fff}
+  .scheme{background:#fff;border-radius:14px;border:1px solid var(--b);padding:6px;margin-bottom:10px}
+  .scheme svg{width:100%;height:auto;display:block}
+  .hs{cursor:pointer}.hs circle{transition:.15s}.hs:hover circle{r:15}
+  .list-item{display:flex;align-items:center;gap:12px;padding:12px;background:#fff;border-radius:12px;margin-bottom:8px;
+             border:1px solid var(--b);cursor:pointer}
+  .num{width:28px;height:28px;border-radius:50%;background:var(--g);color:#fff;font-weight:700;font-size:13px;
+       display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .num.warn{background:var(--y);color:#3e2723}
+  .list-item h4{font-size:14.5px}.list-item p{font-size:12px;color:var(--m);margin-top:1px}
+  .arrow{margin-left:auto;color:#a0aaa4;font-size:18px}
+  .node-head{display:flex;gap:12px;align-items:center;margin-bottom:10px}
+  .node-head h2{font-size:18px;line-height:1.2}
+  .what{font-size:14px;line-height:1.5;color:#333}
+  .adj{border-left:4px solid var(--g);padding:12px 12px 12px 14px;background:#fff;border-radius:0 12px 12px 0;margin-bottom:10px;border-top:1px solid var(--b);border-right:1px solid var(--b);border-bottom:1px solid var(--b)}
+  .adj h4{font-size:15px;margin-bottom:6px}
+  .val{display:inline-block;background:var(--gl);color:var(--g);font-weight:800;font-size:16px;padding:5px 10px;border-radius:9px;margin:2px 0 8px}
+  .adj ol{padding-left:18px;font-size:13.5px;line-height:1.5}
+  .adj ol li{margin-bottom:3px}
+  .tool{font-size:12.5px;color:var(--m);margin-top:6px}
+  .warnbox{background:var(--yl);border:1px solid #ffe082;border-radius:12px;padding:11px 12px;font-size:13px;line-height:1.45;margin-bottom:10px}
+  .errbox{background:var(--rl);border:1px solid #ffcdd2;border-radius:12px;padding:11px 12px;font-size:13px;line-height:1.45;margin-bottom:10px}
+  .errbox ul,.warnbox ul{padding-left:18px;margin-top:4px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  td{padding:7px 4px;border-bottom:1px solid var(--b);vertical-align:top}
+  td:last-child{text-align:right;font-weight:700;white-space:nowrap}
+  .src{font-size:11px;color:#8a958f;margin-top:8px;line-height:1.4}
+  .step{display:flex;gap:10px;margin-bottom:10px}
+  .step .n{width:24px;height:24px;border-radius:50%;background:var(--y);color:#3e2723;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+  .step div{font-size:13.5px;line-height:1.45}
+  .link{color:var(--g);font-weight:600;cursor:pointer;text-decoration:underline}
+  .res{padding:11px 12px;background:#fff;border:1px solid var(--b);border-radius:12px;margin-bottom:8px;cursor:pointer}
+  .res .t{font-size:11px;color:var(--g);font-weight:700;text-transform:uppercase}
+  .res h4{font-size:14px;margin:2px 0}
+  .res p{font-size:12.5px;color:var(--m)}
+  .res mark{background:#fff59d;padding:0 1px}
+  .empty{text-align:center;color:var(--m);font-size:13.5px;padding:18px 10px;line-height:1.5}
+  .modal{position:absolute;inset:0;background:rgba(0,0,0,.45);display:none;align-items:flex-end;z-index:5}
+  .modal.show{display:flex}
+  .sheet{background:#fff;width:100%;border-radius:22px 22px 0 0;padding:20px 18px 24px}
+  .sheet h3{font-size:17px;margin-bottom:8px}
+  .sheet p{font-size:13.5px;line-height:1.5;color:#333;margin-bottom:10px}
+  .opt{display:flex;gap:10px;align-items:center;padding:12px;border:1.5px solid var(--b);border-radius:12px;margin-bottom:8px;cursor:pointer;font-size:14px}
+  .opt:hover{border-color:var(--g)}
+  .fb{display:flex;gap:8px;margin-top:10px}
+  .fb button{flex:1;padding:10px;border-radius:10px;border:1.5px solid var(--b);background:#fff;font-size:13.5px;cursor:pointer}
+  .fb button.done{background:var(--gl);border-color:var(--g);color:var(--g);font-weight:700}
+  .proto{font-size:10.5px;text-align:center;color:#7b8a81;padding:6px;background:#e4ebe6;flex-shrink:0}
+</style>
+</head>
+<body>
+<div class="phone">
+  <header>
+    <button class="back" id="back" onclick="goBack()">‹</button>
+    <h1 id="title"><span class="logo">АгроНастрой</span><small>Регулировки сельхозмашин понятным языком</small></h1>
+  </header>
+
+  <main id="main">
+    <!-- HOME -->
+    <section class="screen active" id="s-home">
+      <div class="search">🔍<input id="q-home" placeholder="Например: высота среза, ремни свистят…" oninput="doSearch(this.value,'r-home')"></div>
+      <div class="hint">Поиск только по проверенной базе. Чего нет в базе, приложение не придумывает.</div>
+      <div id="r-home"></div>
+
+      <button class="btn ghost" onclick="openPhoto()">📷 Найти узел по фото</button>
+
+      <div class="sec">Машины в базе</div>
+      <div class="card mach" onclick="openMachine()">
+        <div class="ic"><svg width="34" height="34" viewBox="0 0 34 34"><rect x="3" y="20" width="28" height="5" rx="2" fill="#2e7d32"/><circle cx="9" cy="22.5" r="4" fill="#43a047"/><circle cx="17" cy="22.5" r="4" fill="#43a047"/><circle cx="25" cy="22.5" r="4" fill="#43a047"/><path d="M6 20 L14 8 L20 8" stroke="#2e7d32" stroke-width="2.5" fill="none"/></svg></div>
+        <div><h3>КРН-2,1</h3><p>Косилка ротационная навесная · МТЗ-80/82</p><span class="badge">7 узлов · 5 проблем</span></div>
+        <span class="arrow">›</span>
+      </div>
+      <div class="card mach off"><div class="ic">🌾</div><div><h3>СЗ-5,4</h3><p>Сеялка зерновая</p><span class="badge soon">скоро</span></div></div>
+      <div class="card mach off"><div class="ic">🚜</div><div><h3>ПЛН-3-35</h3><p>Плуг навесной</p><span class="badge soon">скоро</span></div></div>
+      <div class="card mach off"><div class="ic">🌿</div><div><h3>Acros 595 Plus</h3><p>Зерноуборочный комбайн</p><span class="badge soon">скоро</span></div></div>
+    </section>
+
+    <!-- MACHINE -->
+    <section class="screen" id="s-machine">
+      <div class="search">🔍<input id="q-mach" placeholder="Поиск по КРН-2,1…" oninput="doSearch(this.value,'r-mach')"></div>
+      <div id="r-mach"></div>
+      <div class="tabs">
+        <button class="on" id="t1" onclick="tab(1)">Схема</button>
+        <button id="t2" onclick="tab(2)">Узлы</button>
+        <button id="t3" onclick="tab(3)">Что-то не так</button>
+      </div>
+      <div id="tab1">
+        <div class="scheme">
+          <svg viewBox="0 0 360 250" id="svg"></svg>
+        </div>
+        <div class="hint" style="text-align:center">Нажми на номер, чтобы открыть узел</div>
+        <div class="card">
+          <table>
+            <tr><td>Ширина захвата</td><td>2,1 м</td></tr>
+            <tr><td>Трактор</td><td>МТЗ-80/82</td></tr>
+            <tr><td>Рабочая скорость</td><td>до 15 км/ч</td></tr>
+            <tr><td>Транспортная скорость</td><td>до 30 км/ч</td></tr>
+            <tr><td>Высота среза: естественные травы</td><td>6 ± 2 см</td></tr>
+            <tr><td>Высота среза: сеяные травы</td><td>8 ± 2 см</td></tr>
+          </table>
+        </div>
+      </div>
+      <div id="tab2" style="display:none"></div>
+      <div id="tab3" style="display:none"></div>
+    </section>
+
+    <!-- NODE -->
+    <section class="screen" id="s-node"></section>
+    <!-- SYMPTOM -->
+    <section class="screen" id="s-sym"></section>
+  </main>
+
+  <div class="proto">Прототип для обсуждения · данные КРН-2,1 взяты из паспорта производителя, кафедра их ещё не проверяла</div>
+
+  <div class="modal" id="modal" onclick="if(event.target===this)closeModal()">
+    <div class="sheet" id="sheet"></div>
+  </div>
+</div>
+
+<script>
+const NODES = [
+  {id:'height', n:1, x:250, y:205, title:'Высота среза и наклон аппарата', short:'Регулируется центральной тягой трактора',
+   what:'От высоты среза зависит, сколько травы ты соберёшь и как быстро она отрастёт. Слишком низко: ножи цепляют землю, в корм попадает грунт, отава плохо отрастает. Слишком высоко: недобор урожая.',
+   adj:[
+     {t:'Установочная высота среза', v:'6 ± 2 см (естественные травы), 8 ± 2 см (сеяные)',
+      how:['Опусти косилку на башмаки на ровной площадке.','Режущий аппарат должен стоять горизонтально. Это задаётся длиной центральной тяги трактора и пружинами уравновешивания.','Чтобы срезать ниже, наклони аппарат вперёд по ходу, укоротив центральную тягу.'],
+      tool:'Рулетка, ключи для центральной тяги'},
+     {t:'Наклон аппарата вперёд', v:'не более 3°',
+      how:['Больший наклон приводит к тому, что ножи начинают «брить» землю.','Проверь угол: передний край аппарата не должен опускаться ниже заднего больше чем на 3°.'],
+      tool:'Угломер или уровень с приложением на телефоне'}
+   ],
+   mistakes:['Наклон больше 3°: ножи цепляют землю и быстро тупятся, в корм попадает грунт.','Аппарат перекошен поперёк: справа и слева получается разная высота стерни.'],
+   related:['balance','hitch']},
+  {id:'balance', n:2, x:300, y:150, title:'Механизм уравновешивания (давление башмаков)', short:'Сколько аппарат давит на землю',
+   what:'Пружины разгружают режущий аппарат, чтобы он не пахал землю, но и не прыгал. Если пружины разгружают слишком сильно, аппарат подпрыгивает и оставляет нескошенные полосы. Если слишком слабо, он зарывается и сгребает грунт.',
+   adj:[
+     {t:'Давление наружного (внешнего) башмака', v:'200–300 Н (20–30 кгс)',
+      how:['Ось навески должна стоять на номинальной высоте 485 мм (узел 3), иначе регулировка собьётся.','Подцепи динамометр за наружный край аппарата (у полевого делителя) и приподними, пока башмак не оторвётся от земли.','Если показания вне диапазона, подтяни или ослабь натяжной болт пружины наружного башмака.'],
+      tool:'Динамометр (ДПУ-01-2 или любой крюковой на 100 кгс)'},
+     {t:'Давление внутреннего башмака', v:'700–900 Н (70–90 кгс)',
+      how:['Замеряй так же, у внутреннего башмака, ближе к трактору.','Регулируй натяжным болтом пружины внутреннего башмака.'],
+      tool:'Динамометр'}
+   ],
+   disagree:'В разных источниках для КРН-2,1 встречаются разные цифры: в паспорте 200–300 / 700–900 Н, в учебных пособиях 100–200 / 300–700 Н. На рыхлых почвах давление рекомендуют снижать. <b>Здесь кафедра должна сказать, какие цифры правильные для кубанских условий.</b>',
+   mistakes:['Регулировка без проверки высоты оси навески. Тогда всё собьётся, как только опустишь косилку.','Одинаковое давление на обоих башмаках. Внутренний должен давить в несколько раз сильнее.'],
+   related:['hitch','height']},
+  {id:'hitch', n:3, x:52, y:120, title:'Навеска на трактор', short:'Высота оси навески 485 мм',
+   what:'Это база всех остальных регулировок. Если косилка навешена криво или на неправильной высоте, механизм уравновешивания и высота среза работать правильно не будут.',
+   adj:[
+     {t:'Высота оси навески над землёй', v:'485 мм (допуск ± 25 мм)',
+      how:['Косилка опущена на башмаки, площадка ровная.','Замерь расстояние от земли до оси нижних тяг навески.','Подгони раскосами и центральной тягой трактора.'],
+      tool:'Рулетка'},
+     {t:'Колея трактора', v:'1400–1500 мм',
+      how:['Проверь колею МТЗ. При другой колее колесо может попадать на несрезанную траву.'],
+      tool:'Рулетка'}
+   ],
+   mistakes:['Регулировать давление башмаков, не выставив сначала 485 мм.'],
+   related:['balance']},
+  {id:'belts', n:4, x:150, y:70, title:'Клиноременная передача', short:'Натяжение ремней и соосность шкивов',
+   what:'Ремни передают вращение от ВОМ к роторам. Если ремень слабо натянут, он проскальзывает, греется и свистит, а роторы теряют обороты: трава срезается хуже, ремни горят.',
+   adj:[
+     {t:'Натяжение ремней', v:'витки пружины натяжника сжаты до соприкосновения',
+      how:['Гайками натяжника сжимай пружину, пока витки не соприкоснутся.','В работе ремни вытягиваются: когда зазор между витками дойдёт до 3 мм, подтяни снова.','Проверь прогиб ведущей ветви посередине: не больше 15 мм.'],
+      tool:'Ключи, линейка'},
+     {t:'Соосность шкивов', v:'отклонение канавок не более 3 мм',
+      how:['Приложи ровную линейку к торцу ведомого шкива так, чтобы она доставала до ведущего.','Если канавки не совпадают, переставь регулировочные шайбы под корпусом.','После регулировки шайбы должны полностью заполнять зазоры.'],
+      tool:'Длинная ровная линейка или уголок'}
+   ],
+   mistakes:['Не подтягивать ремни после первых часов работы, пока они вытягиваются.','Менять один ремень из комплекта: новый и старый работают неравномерно.'],
+   related:['gear']},
+  {id:'gear', n:5, x:200, y:150, title:'Редуктор режущего аппарата', short:'Зазор в коническом зацеплении',
+   what:'Конический редуктор передаёт вращение на роторы. Неправильный зазор в шестернях даёт стук, нагрев и быстрый износ.',
+   adj:[
+     {t:'Боковой зазор в зацеплении', v:'0,12–0,55 мм',
+      how:['Регулируется регулировочными прокладками.','Слишком малый зазор: редуктор греется. Слишком большой: стучит и изнашивается.'],
+      tool:'Щуп, набор прокладок'}
+   ],
+   mistakes:['Работать с низким уровнем масла в редукторе.'],
+   related:['belts']},
+  {id:'safety', n:6, x:110, y:175, title:'Предохранитель режущего аппарата', short:'Спасает косилку при наезде на препятствие',
+   what:'Когда аппарат налетает на камень или пень, предохранитель срабатывает, и аппарат отклоняется назад, а не ломается.',
+   adj:[
+     {t:'Усилие срабатывания', v:'3000 Н (≈ 300 кгс) в середине аппарата',
+      how:['Проверяй динамометром, прикладывая усилие к середине режущего аппарата по ходу назад.','Если срабатывает раньше, ослаблена пружина предохранителя. Если позже, перетянута: при наезде на препятствие можно сломать аппарат.'],
+      tool:'Динамометр'}
+   ],
+   mistakes:['Затягивать предохранитель «намертво», чтобы не срабатывал. Первый же камень сломает аппарат.'],
+   related:['balance']},
+  {id:'transport', n:7, x:95, y:45, title:'Транспортная тяга', short:'Фиксация косилки для переезда',
+   what:'Удерживает режущий аппарат в поднятом положении при переездах. При транспортировке аппарат обязательно фиксируется.',
+   adj:[
+     {t:'Фиксация для транспорта', v:'штырь с кольцом и стопорный штырь на месте',
+      how:['Подними аппарат в транспортное положение.','Зафиксируй транспортную тягу и телескопическое стопорное устройство штырями.','Скорость при переезде не больше 30 км/ч.'],
+      tool:'—'}
+   ],
+   mistakes:['Ехать без фиксации: аппарат может упасть на ходу.'],
+   related:[]}
+];
+
+const SYMPTOMS = [
+  {id:'s1', title:'Высокая или неровная стерня, остаются нескошенные полосы',
+   steps:[
+     ['Проверь скорость: не больше 15 км/ч. На густой траве медленнее.',null],
+     ['Проверь, не потеряны ли и не затуплены ли ножи на роторах.',null],
+     ['Проверь высоту оси навески: 485 мм.','hitch'],
+     ['Проверь наклон и горизонтальность аппарата.','height'],
+     ['Если аппарат подпрыгивает, значит, он перегружен пружинами: увеличь давление башмаков до нормы.','balance']
+   ]},
+  {id:'s2', title:'Аппарат зарывается, сгребает землю, в траве грунт',
+   steps:[
+     ['Наклон аппарата вперёд больше 3°? Удлини центральную тягу.','height'],
+     ['Давление башмаков выше нормы? Подтяни пружины уравновешивания.','balance'],
+     ['На рыхлой или влажной почве давление снижают относительно нормы.','balance']
+   ]},
+  {id:'s3', title:'Ремни свистят, греются, роторы теряют обороты',
+   steps:[
+     ['Проверь зазор между витками пружины натяжника. Если 3 мм и больше, подтяни.','belts'],
+     ['Проверь прогиб ведущей ветви: не больше 15 мм.','belts'],
+     ['Проверь соосность шкивов, отклонение не больше 3 мм. Перекос быстро «съедает» ремни.','belts']
+   ]},
+  {id:'s4', title:'Стук или нагрев в редукторе',
+   steps:[
+     ['Проверь уровень масла в редукторе.',null],
+     ['Проверь боковой зазор в зацеплении: 0,12–0,55 мм.','gear']
+   ]},
+  {id:'s5', title:'Предохранитель срабатывает слишком часто',
+   steps:[
+     ['Поле чистое от камней? Сначала убедись, что срабатывает не по делу.',null],
+     ['Проверь усилие срабатывания: 3000 Н в середине аппарата.','safety'],
+     ['Снизь скорость на засорённых участках.',null]
+   ]}
+];
+
+// Синонимы — так «умный поиск» понимает разговорные запросы, отвечая только из базы
+const SYN = {
+  'срез':['высота среза','стерня','низко','высоко','косит'],
+  'стерн':['высота среза','нескошен'],
+  'ремн':['ремень','свист','греются','проскальзывает','натяжение'],
+  'ремен':['ремни','свист','натяжение'],
+  'свист':['ремни','натяжение'],
+  'башмак':['давление','уравновешивание','пружины','прыгает','зарывается'],
+  'прыга':['уравновешивание','давление башмаков','подпрыгивает'],
+  'земл':['зарывается','наклон','давление'],
+  'навес':['485','ось навески','трактор'],
+  'стук':['редуктор','зазор'],
+  'редукт':['зацепление','зазор','масло'],
+  'камен':['предохранитель'],
+  'предохр':['срабатывает','3000'],
+  'переезд':['транспорт'],
+  'транспорт':['переезд','фиксация'],
+  'наклон':['высота среза','3°']
+};
+
+let history = ['home'];
+let curTab = 1;
+
+function $(id){return document.getElementById(id)}
+function show(id, title, sub){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  $('s-'+id).classList.add('active');
+  $('title').innerHTML = title ? `${title}<small>${sub||''}</small>` : '<span class="logo">АгроНастрой</span><small>Регулировки сельхозмашин понятным языком</small>';
+  $('back').classList.toggle('show', id!=='home');
+  $('main').scrollTop = 0;
+}
+function go(id, arg){
+  history.push(arg ? id+':'+arg : id);
+  render(id, arg);
+}
+function render(id,arg){
+  if(id==='home') show('home');
+  if(id==='machine'){ show('machine','КРН-2,1','Косилка ротационная навесная'); tab(curTab); }
+  if(id==='node') renderNode(arg);
+  if(id==='sym') renderSym(arg);
+}
+function goBack(){
+  history.pop();
+  const last = history[history.length-1] || 'home';
+  const [id,arg] = last.split(':');
+  render(id,arg);
+}
+function openMachine(){ go('machine'); }
+
+function drawScheme(){
+  const s = $('svg');
+  let h = `
+  <defs><pattern id="grass" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M2 10 L4 4 M6 10 L8 5" stroke="#9ccc65" stroke-width="1"/></pattern></defs>
+  <rect x="0" y="215" width="360" height="35" fill="url(#grass)"/>
+  <line x1="0" y1="215" x2="360" y2="215" stroke="#8d6e63" stroke-width="2"/>
+  <!-- трактор (задняя часть) -->
+  <rect x="0" y="70" width="40" height="110" rx="6" fill="#c62828" opacity=".85"/>
+  <circle cx="20" cy="190" r="24" fill="#37474f"/><circle cx="20" cy="190" r="10" fill="#90a4ae"/>
+  <text x="6" y="64" font-size="10" fill="#5f6b64">МТЗ</text>
+  <!-- навеска -->
+  <line x1="40" y1="160" x2="75" y2="150" stroke="#455a64" stroke-width="5"/>
+  <line x1="40" y1="95" x2="75" y2="115" stroke="#455a64" stroke-width="4" stroke-dasharray="6 3"/>
+  <!-- рама -->
+  <rect x="70" y="105" width="30" height="55" rx="4" fill="#558b2f"/>
+  <!-- транспортная тяга -->
+  <line x1="85" y1="105" x2="150" y2="40" stroke="#689f38" stroke-width="4"/>
+  <!-- корпус ремней -->
+  <rect x="120" y="50" width="70" height="38" rx="10" fill="#7cb342"/>
+  <circle cx="137" cy="69" r="11" fill="#33691e"/><circle cx="174" cy="69" r="11" fill="#33691e"/>
+  <line x1="137" y1="58" x2="174" y2="58" stroke="#212121" stroke-width="2"/><line x1="137" y1="80" x2="174" y2="80" stroke="#212121" stroke-width="2"/>
+  <line x1="155" y1="88" x2="200" y2="140" stroke="#689f38" stroke-width="5"/>
+  <!-- пружины уравновешивания -->
+  <polyline points="100,150 112,140 118,158 130,148 136,166 148,156 154,174 166,164 172,182" stroke="#f9a825" stroke-width="3" fill="none"/>
+  <polyline points="100,130 140,128 180,126 230,130 270,140 300,165 310,185" stroke="#f9a825" stroke-width="2.5" fill="none" stroke-dasharray="5 3"/>
+  <!-- режущий брус -->
+  <rect x="95" y="185" width="235" height="18" rx="8" fill="#2e7d32"/>
+  <ellipse cx="135" cy="185" rx="22" ry="7" fill="#43a047" stroke="#1b5e20"/>
+  <ellipse cx="185" cy="185" rx="22" ry="7" fill="#43a047" stroke="#1b5e20"/>
+  <ellipse cx="235" cy="185" rx="22" ry="7" fill="#43a047" stroke="#1b5e20"/>
+  <ellipse cx="285" cy="185" rx="22" ry="7" fill="#43a047" stroke="#1b5e20"/>
+  <rect x="190" y="140" width="22" height="45" rx="4" fill="#558b2f"/>
+  <!-- башмаки -->
+  <path d="M95 203 q10 12 30 12 h-30z" fill="#795548"/>
+  <path d="M305 203 q10 12 28 12 h-30z" fill="#795548"/>
+  <text x="96" y="232" font-size="9" fill="#5d4037">внутр. башмак</text>
+  <text x="280" y="232" font-size="9" fill="#5d4037">наружн. башмак</text>
+  <text x="200" y="245" font-size="9" fill="#5f6b64" text-anchor="middle">4 ротора · вид сзади (упрощённо)</text>
+  `;
+  NODES.forEach(nd=>{
+    h += `<g class="hs" onclick="go('node','${nd.id}')"><circle cx="${nd.x}" cy="${nd.y}" r="13" fill="#f9a825" stroke="#fff" stroke-width="2.5"/><text x="${nd.x}" y="${nd.y+4.5}" font-size="13" font-weight="800" text-anchor="middle" fill="#3e2723">${nd.n}</text></g>`;
+  });
+  s.innerHTML = h;
+}
+
+function tab(n){
+  curTab = n;
+  [1,2,3].forEach(i=>{ $('t'+i).classList.toggle('on',i===n); $('tab'+i).style.display = i===n?'block':'none'; });
+  if(n===2){
+    $('tab2').innerHTML = NODES.map(nd=>`<div class="list-item" onclick="go('node','${nd.id}')"><div class="num">${nd.n}</div><div><h4>${nd.title}</h4><p>${nd.short}</p></div><span class="arrow">›</span></div>`).join('');
+  }
+  if(n===3){
+    $('tab3').innerHTML = `<div class="hint">Выбери, что видишь в поле. Приложение по шагам подскажет, что проверить и что крутить.</div>` +
+      SYMPTOMS.map((s,i)=>`<div class="list-item" onclick="go('sym','${s.id}')"><div class="num warn">!</div><div><h4>${s.title}</h4><p>${s.steps.length} ${s.steps.length<5?'шага':'шагов'} проверки</p></div><span class="arrow">›</span></div>`).join('');
+  }
+}
+
+function renderNode(id){
+  const nd = NODES.find(x=>x.id===id);
+  show('node', `Узел ${nd.n}`, 'КРН-2,1');
+  let h = `<div class="node-head"><div class="num" style="width:38px;height:38px;font-size:16px">${nd.n}</div><h2>${nd.title}</h2></div>
+  <div class="card"><div class="sec" style="margin-top:0">Зачем это нужно</div><p class="what">${nd.what}</p></div>
+  <div class="sec">Регулировки</div>`;
+  nd.adj.forEach(a=>{
+    h += `<div class="adj"><h4>${a.t}</h4><div class="val">${a.v}</div><ol>${a.how.map(x=>`<li>${x}</li>`).join('')}</ol><div class="tool">🔧 ${a.tool}</div></div>`;
+  });
+  if(nd.disagree) h += `<div class="warnbox">⚠️ <b>Расхождение источников.</b> ${nd.disagree}</div>`;
+  h += `<div class="errbox">❌ <b>Типичные ошибки</b><ul>${nd.mistakes.map(x=>`<li>${x}</li>`).join('')}</ul></div>`;
+  if(nd.related.length){
+    h += `<div class="sec">Связанные узлы</div>` + nd.related.map(r=>{const x=NODES.find(z=>z.id===r);return `<div class="list-item" onclick="go('node','${x.id}')"><div class="num">${x.n}</div><div><h4>${x.title}</h4></div><span class="arrow">›</span></div>`}).join('');
+  }
+  h += `<div class="card" style="margin-top:12px"><b style="font-size:14px">Помогла карточка?</b>
+        <div class="fb"><button onclick="fb(this)">👍 Да</button><button onclick="fb(this)">👎 Нет</button></div>
+        <div class="src">Ответы собираются, и база уточняется каждый сезон.<br>Источник: паспорт КРН-2,1 · Статус: ⏳ ждёт проверки кафедрой «Процессы и машины в агробизнесе», КубГАУ</div></div>`;
+  $('s-node').innerHTML = h;
+}
+
+function renderSym(id){
+  const s = SYMPTOMS.find(x=>x.id===id);
+  show('sym','Что-то не так','КРН-2,1');
+  let h = `<div class="card"><h2 style="font-size:17px;line-height:1.3">${s.title}</h2><p class="hint" style="margin:6px 0 0">Проверяй по порядку: от простого к сложному</p></div>`;
+  s.steps.forEach((st,i)=>{
+    const nd = st[1] ? NODES.find(z=>z.id===st[1]) : null;
+    h += `<div class="card step"><div class="n">${i+1}</div><div>${st[0]}${nd?`<br><span class="link" onclick="go('node','${nd.id}')">→ Узел ${nd.n}: ${nd.title}</span>`:''}</div></div>`;
+  });
+  h += `<div class="card"><b style="font-size:14px">Проблема решена?</b><div class="fb"><button onclick="fb(this)">✅ Да</button><button onclick="fb(this)">❌ Нет</button></div>
+  <div class="src">Если «нет», вопрос уходит экспертам кафедры, а их ответ потом добавляется в базу.</div></div>`;
+  $('s-sym').innerHTML = h;
+}
+
+function fb(b){ b.parentElement.querySelectorAll('button').forEach(x=>x.classList.remove('done')); b.classList.add('done'); }
+
+// ---- Поиск по базе ----
+function buildIndex(){
+  const idx = [];
+  NODES.forEach(nd=>{
+    idx.push({type:'Узел', id:nd.id, kind:'node', title:nd.title, text:[nd.short,nd.what].join(' '), snippet:nd.short});
+    nd.adj.forEach(a=>idx.push({type:'Регулировка', id:nd.id, kind:'node', title:a.t, text:a.t+' '+a.v+' '+a.how.join(' ')+' '+nd.title, snippet:a.v}));
+  });
+  SYMPTOMS.forEach(s=>idx.push({type:'Проблема', id:s.id, kind:'sym', title:s.title, text:s.title+' '+s.steps.map(x=>x[0]).join(' '), snippet:s.steps[0][0]}));
+  return idx;
+}
+const INDEX = buildIndex();
+function norm(s){return s.toLowerCase().replace(/ё/g,'е')}
+function doSearch(q, out){
+  const box = $(out);
+  q = norm(q.trim());
+  if(q.length<2){box.innerHTML='';return;}
+  let words = q.split(/\s+/).filter(w=>w.length>1);
+  let extra = [];
+  Object.keys(SYN).forEach(k=>{ if(words.some(w=>w.includes(k)||k.includes(w.slice(0,4)))) extra = extra.concat(SYN[k]); });
+  const res = INDEX.map(it=>{
+    const t = norm(it.title+' '+it.text);
+    let sc = 0;
+    words.forEach(w=>{ const st = w.length>4? w.slice(0,w.length-2): w; if(norm(it.title).includes(st)) sc+=5; else if(t.includes(st)) sc+=2; });
+    extra.forEach(e=>{ if(t.includes(norm(e))) sc+=1; });
+    return {...it, sc};
+  }).filter(x=>x.sc>0).sort((a,b)=>b.sc-a.sc).slice(0,5);
+  if(!res.length){
+    box.innerHTML = `<div class="empty">🤷 В базе этого нет.<br>Мы не будем придумывать ответ.<br><span class="link" onclick="alert('Вопрос отправлен экспертам кафедры (в прототипе — заглушка)')">Отправить вопрос экспертам</span></div>`;
+    return;
+  }
+  box.innerHTML = res.map(r=>`<div class="res" onclick="go('${r.kind}','${r.id}')"><div class="t">${r.type}</div><h4>${r.title}</h4><p>${r.snippet}</p></div>`).join('') + '<div style="height:6px"></div>';
+}
+
+// ---- Фото ----
+function openPhoto(){
+  $('sheet').innerHTML = `<h3>📷 Поиск узла по фото</h3>
+  <p>Фото сравнивается только с узлами машин <b>из базы</b>. Если сфотографировать машину, которой в базе нет, приложение честно скажет «не распознано», а не будет гадать.</p>
+  <div class="sec" style="margin-top:4px">Демо: что «сфотографировали»?</div>
+  <div class="opt" onclick="photoRes(true)">🟢 Пружины механизма уравновешивания КРН-2,1</div>
+  <div class="opt" onclick="photoRes(false)">🔴 Жатку комбайна CLAAS (нет в базе)</div>
+  <button class="btn ghost" style="margin-top:6px" onclick="closeModal()">Отмена</button>`;
+  $('modal').classList.add('show');
+}
+function photoRes(ok){
+  if(ok){
+    $('sheet').innerHTML = `<h3>✅ Найдено: КРН-2,1</h3><p>Узел 2 · Механизм уравновешивания (давление башмаков)</p>
+    <button class="btn" onclick="closeModal();go('machine');go('node','balance')">Открыть карточку</button>`;
+  } else {
+    $('sheet').innerHTML = `<h3>🤷 Не распознано</h3><p>Этой машины пока нет в базе. Выбери машину из списка или отметь, какую добавить следующей.</p>
+    <button class="btn" onclick="closeModal()">Понятно</button>
+    <button class="btn ghost" style="margin-top:8px" onclick="alert('Голос учтён (заглушка)');closeModal()">Хочу эту машину в базе</button>`;
+  }
+}
+function closeModal(){ $('modal').classList.remove('show'); }
+
+drawScheme();
+</script>
+</body>
+</html>

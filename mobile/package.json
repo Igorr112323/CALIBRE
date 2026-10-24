@@ -1,0 +1,24 @@
+{
+  "name": "calibre-android",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Android-приложение КАЛИБР на Capacitor",
+  "scripts": {
+    "build": "vite build --config vite.config.mjs",
+    "dev:local": "vite --config vite.config.mjs --host 127.0.0.1 --port 5173 --strictPort",
+    "cap:sync": "npm run build && cap sync android",
+    "android:open": "npm run cap:sync && cap open android",
+    "android:debug": "npm run cap:sync && cd android && gradlew.bat assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor-community/sqlite": "8.1.1",
+    "@capacitor/android": "8.4.3",
+    "@capacitor/core": "8.4.3",
+    "@capacitor/filesystem": "8.1.5",
+    "@capacitor/network": "^8.0.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.4.3",
+    "vite": "^8.3.5"
+  }
+}

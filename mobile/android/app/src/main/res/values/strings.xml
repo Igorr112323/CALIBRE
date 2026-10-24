@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">КАЛИБР</string>
+    <string name="title_activity_main">КАЛИБР</string>
+    <string name="package_name">ru.calibre.mobile</string>
+    <string name="custom_url_scheme">ru.calibre.mobile</string>
+</resources>

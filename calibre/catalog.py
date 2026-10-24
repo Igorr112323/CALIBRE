@@ -1,0 +1,142 @@
+"""Safe serialization boundary: the phone receives only published, cleared content."""
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+
+from calibre.models import Adjustment, Machine, Problem, Node
+
+
+PUBLIC_NORM_STATES = {"verified", "forced_accept"}
+PUBLIC_PHOTO_RIGHTS = {"own", "manufacturer_permission"}
+
+
+def _public_norm(norm):
+    if norm.review_status not in PUBLIC_NORM_STATES:
+        return None
+    document = norm.source_document
+    return {
+        "id": norm.id,
+        "value": norm.value_original,
+        "unit": norm.unit_original,
+        "minimum": str(norm.minimum_value) if norm.minimum_value is not None else None,
+        "maximum": str(norm.maximum_value) if norm.maximum_value is not None else None,
+        "tolerance": str(norm.tolerance_value) if norm.tolerance_value is not None else None,
+        "source": {
+            "kind": norm.source_kind,
+            "document": document.title if document else None,
+            "page_start": norm.source_page_start,
+            "page_end": norm.source_page_end,
+            "quote": norm.source_quote,
+            "measured_by": norm.measured_by,
+            "measured_at": norm.measured_at.isoformat() if norm.measured_at else None,
+        },
+        "manual_accept_comment": norm.force_comment if norm.review_status == "forced_accept" else None,
+    }
+
+
+def serialize_machine(machine: Machine) -> dict:
+    nodes = []
+    published_node_ids = {node.id for node in machine.nodes if node.status == "published"}
+    for node in machine.nodes:
+        if node.status != "published":
+            continue
+        published_adjustments = []
+        for adjustment in node.adjustments:
+            if adjustment.status != "published":
+                continue
+            norms = [
+                public_norm
+                for norm in adjustment.norms
+                if (public_norm := _public_norm(norm)) is not None
+            ]
+            published_adjustments.append({
+                "id": adjustment.id,
+                "title": adjustment.title,
+                "instructions": adjustment.instructions,
+                "tool": adjustment.tool,
+                "norms": norms,
+                "department_checked": any(review.verdict in {"confirmed", "corrected"} for review in adjustment.reviews),
+            })
+        nodes.append({
+            "id": node.id,
+            "number": node.number,
+            "title": node.title,
+            "purpose": node.purpose,
+            "map": {"x": float(node.map_x) if node.map_x is not None else None,
+                    "y": float(node.map_y) if node.map_y is not None else None},
+            "adjustments": published_adjustments,
+            "mistakes": [
+                {"description": mistake.description, "consequence": mistake.consequence}
+                for mistake in node.mistakes
+            ],
+            "related_node_ids": [
+                link.related_node_id for link in node.related_links
+                if link.related_node_id in published_node_ids
+            ],
+            "department_checked": any(review.verdict in {"confirmed", "corrected"} for review in node.reviews),
+            "photos": [
+                {"id": photo.id, "caption": photo.caption}
+                for photo in node.photos
+                if photo.published and photo.usage_rights in PUBLIC_PHOTO_RIGHTS
+            ],
+        })
+
+    problems = []
+    for problem in machine.problems:
+        if problem.status != "published":
+            continue
+        steps = []
+        for step in problem.steps:
+            linked_node = step.linked_node
+            steps.append({
+                "number": step.step_number,
+                "instruction": step.instruction,
+                "linked_node_id": linked_node.id if linked_node and linked_node.id in published_node_ids else None,
+            })
+        problems.append({"id": problem.id, "title": problem.title, "symptom": problem.symptom, "steps": steps})
+
+    return {
+        "id": machine.id,
+        "code": machine.code,
+        "manufacturer": machine.manufacturer,
+        "model": machine.model,
+        "machine_type": machine.machine_type,
+        "description": machine.description,
+        "tractor_requirements": machine.tractor_requirements,
+        "version": machine.version,
+        "is_demo": machine.is_demo,
+        "label": "ДЕМО — учебные данные, не для настройки техники" if machine.is_demo else None,
+        "characteristics": [
+            {"label": spec.label, "value": spec.display_value,
+             "source_page": spec.source_page, "source_quote": spec.source_quote}
+            for spec in machine.characteristics if spec.status == "published"
+        ],
+        "nodes": nodes,
+        "problems": problems,
+    }
+
+
+def mobile_catalog(session: Session) -> dict:
+    """Keep demonstration and real published machines in separate collections."""
+    statement = (
+        select(Machine)
+        .where(Machine.status == "published")
+        .options(
+            selectinload(Machine.characteristics),
+            selectinload(Machine.nodes).selectinload(Node.adjustments).selectinload(Adjustment.norms),
+            selectinload(Machine.nodes).selectinload(Node.adjustments).selectinload(Adjustment.reviews),
+            selectinload(Machine.nodes).selectinload(Node.mistakes),
+            selectinload(Machine.nodes).selectinload(Node.photos),
+            selectinload(Machine.nodes).selectinload(Node.related_links),
+            selectinload(Machine.nodes).selectinload(Node.reviews),
+            selectinload(Machine.problems).selectinload(Problem.steps),
+        )
+        .order_by(Machine.is_demo.desc(), Machine.manufacturer, Machine.model)
+    )
+    machines = [serialize_machine(machine) for machine in session.scalars(statement).unique().all()]
+    return {
+        "schema_version": 1,
+        "real_machines": [machine for machine in machines if not machine["is_demo"]],
+        "demo_machines": [machine for machine in machines if machine["is_demo"]],
+    }
