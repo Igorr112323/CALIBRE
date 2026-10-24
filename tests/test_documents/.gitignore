@@ -1,0 +1,12 @@
+# Private source files: never include third-party manuals in the code archive.
+*.pdf
+*.doc
+*.docx
+*.tif
+*.tiff
+*.png
+*.jpg
+*.jpeg
+
+# Per-run diagnostics and local AI output stay out of Git.
+runs/
