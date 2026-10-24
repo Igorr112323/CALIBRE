@@ -45,6 +45,17 @@ class MobileAppStageThreeTests(unittest.TestCase):
         self.assertIn("questionQueue", app)
         self.assertIn("networkStatusChange", app)
 
+    def test_app_brand_is_kolibri_in_android_and_interface(self):
+        html = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
+        app = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
+        capacitor = (ROOT / "mobile/capacitor.config.json").read_text(encoding="utf-8")
+        strings = (ROOT / "mobile/android/app/src/main/res/values/strings.xml").read_text(encoding="utf-8")
+        self.assertIn('appName": "Kolibri"', capacitor)
+        self.assertIn('<string name="app_name">Kolibri</string>', strings)
+        self.assertIn('<span class="logo">Kolibri</span>', html)
+        self.assertIn("return ['Kolibri'", app)
+        self.assertNotIn('class="logo">КАЛИБР', html)
+
     def test_pc_preview_is_bound_to_loopback_and_proxies_only_to_local_server(self):
         config = (ROOT / "mobile/vite.config.mjs").read_text(encoding="utf-8")
         batch = (ROOT / "preview_app.bat").read_text(encoding="utf-8")

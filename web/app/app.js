@@ -171,7 +171,7 @@ function titleForScreen() {
   if (ui.screen === 'machine') return [machine?.model || 'Машина', machine?.machine_type || 'Карточка машины'];
   if (ui.screen === 'node') return ['Карточка узла', machine?.model || 'Машина'];
   if (ui.screen === 'problem') return ['Что-то не так', machine?.model || 'Машина'];
-  return ['КАЛИБР', 'Сельхозтехника'];
+  return ['Kolibri', 'Сельхозтехника'];
 }
 
 function go(screen, values = {}) {
@@ -197,8 +197,10 @@ function setScreen(screen) {
 function render() {
   const [title, subtitle] = titleForScreen();
   const titleElement = $('#title');
-  titleElement.innerHTML = `${ui.screen === 'home' ? '<span class="logo">КАЛИБР</span>' : escapeHtml(title)}<small>${escapeHtml(subtitle)}</small>`;
-  $('#back').classList.toggle('show', ui.screen !== 'home');
+  titleElement.innerHTML = ['home', 'catalog'].includes(ui.screen)
+    ? '<span class="logo">Kolibri</span><small>Справочник сельхозтехники</small>'
+    : `${escapeHtml(title)}<small>${escapeHtml(subtitle)}</small>`;
+  $('#back').classList.toggle('show', ['machine', 'node', 'problem'].includes(ui.screen));
   document.querySelectorAll('.bottom-nav button').forEach(button => {
     button.classList.toggle('active', button.dataset.action === (ui.screen === 'catalog' || ui.screen === 'machine' || ui.screen === 'node' || ui.screen === 'problem' ? 'catalog' : 'home'));
   });
@@ -251,18 +253,29 @@ function renderSearchResults(query, containerId) {
   container.innerHTML = results.map(item => `<article class="search-result" data-action="open-search-result" data-kind="${item.kind}" data-id="${escapeHtml(item.id)}" data-machine-id="${escapeHtml(item.machineId)}"><div class="type">${escapeHtml(item.type)}</div><h4>${escapeHtml(item.title)}</h4><p>${escapeHtml(item.snippet)}</p></article>`).join('');
 }
 
-function renderMachineCard(machine) {
-  return `<article class="card machine-card" data-action="open-machine" data-id="${escapeHtml(machine.id)}"><div class="machine-art" aria-hidden="true">◌</div><div class="machine-info"><h3>${escapeHtml(machine.model || 'Машина')}</h3><p>${escapeHtml(machine.machine_type || 'Сельскохозяйственная машина')}</p></div><span class="arrow">›</span></article>`;
+function machineSearchField() {
+  return `<section class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.6"/><path d="m16 16 5 5"/></svg><input id="homeSearch" value="${escapeHtml(ui.searchQuery)}" placeholder="Поиск по каталогу" autocomplete="off" aria-label="Поиск по каталогу"></section><div id="homeResults"></div>`;
+}
+
+function tractorIllustration() {
+  return `<svg class="tractor-art" viewBox="0 0 220 150" aria-hidden="true"><ellipse cx="128" cy="137" rx="91" ry="7" fill="#bdc9b8" opacity=".7"/><path d="M91 21q1-7 9-7h31q8 0 10 8l8 43h53q9 0 9 9v17q0 9-9 9h-70l-9-30H91z" fill="#3d7435"/><path d="M101 27h25l6 29H96z" fill="#f2f4eb"/><path d="M151 66h48q9 0 9 9v7h-57z" fill="#3d7435"/><rect x="177" y="39" width="7" height="28" rx="3.5" fill="#18251b"/><circle cx="94" cy="102" r="34" fill="#172019"/><circle cx="94" cy="102" r="15" fill="#f4f6ed"/><circle cx="94" cy="102" r="6" fill="#294b2b"/><circle cx="199" cy="111" r="22" fill="#172019"/><circle cx="199" cy="111" r="9" fill="#f4f6ed"/></svg>`;
+}
+
+function renderMachineCard(machine, index = 0) {
+  return `<article class="machine-card card-tone-${index % 2}" data-action="open-machine" data-id="${escapeHtml(machine.id)}"><h3>${escapeHtml(machine.model || 'Машина')}</h3><span class="machine-open" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>${tractorIllustration()}</article>`;
+}
+
+function renderMachineList() {
+  const machines = machineList();
+  return machines.map((machine, index) => renderMachineCard(machine, index)).join('') || '<div class="catalog-empty">Нет добавленных машин.</div>';
 }
 
 function renderHome() {
-  const machines = machineList();
-  return `<section class="search"><span aria-hidden="true">🔍</span><input id="homeSearch" value="${escapeHtml(ui.searchQuery)}" placeholder="Поиск по каталогу" autocomplete="off" aria-label="Поиск по справочнику"></section><div id="homeResults"></div><div class="section">Машины</div>${machines.map(renderMachineCard).join('') || '<div class="catalog-empty">Нет добавленных машин.</div>'}`;
+  return `${machineSearchField()}<h2 class="catalog-heading">Каталог</h2><div class="machine-list">${renderMachineList()}</div>`;
 }
 
 function renderCatalog() {
-  const machines = machineList();
-  return `<h2 class="screen-title">Машины</h2>${machines.map(renderMachineCard).join('') || '<div class="catalog-empty">Нет добавленных машин.</div>'}`;
+  return `${machineSearchField()}<h2 class="catalog-heading">Каталог</h2><div class="machine-list">${renderMachineList()}</div>`;
 }
 
 function renderScheme() {

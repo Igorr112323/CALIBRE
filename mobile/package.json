@@ -2,7 +2,7 @@
   "name": "calibre-android",
   "version": "0.1.0",
   "private": true,
-  "description": "Android-приложение КАЛИБР на Capacitor",
+  "description": "Android-приложение Kolibri на Capacitor",
   "scripts": {
     "build": "vite build --config vite.config.mjs",
     "dev:local": "vite --config vite.config.mjs --host 127.0.0.1 --port 5173 --strictPort",

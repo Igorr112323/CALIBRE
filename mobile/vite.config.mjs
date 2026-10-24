@@ -20,6 +20,7 @@ export default defineConfig({
   server: {
     // Intentional: desktop preview must never be reachable from a phone or another LAN device.
     host: '127.0.0.1',
+    allowedHosts: ['.e2b.app', 'localhost', '127.0.0.1'],
     port: 5173,
     strictPort: true,
     proxy: {
