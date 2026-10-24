@@ -91,13 +91,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path build-notices | Out-Null
           Copy-Item THIRD_PARTY_NOTICES.md build-notices/THIRD_PARTY_NOTICES.md
-          $sitePackages = python -c "import site; print(site.getsitepackages()[0])"
-          if ($LASTEXITCODE -ne 0) { throw "Не удалось определить каталог Python-пакетов" }
-          $pyinstallerDist = Get-ChildItem $sitePackages -Directory -Filter "pyinstaller-*.dist-info" | Select-Object -First 1
-          if (-not $pyinstallerDist) { throw "Не найдены сведения о лицензии PyInstaller в $sitePackages" }
-          $pyinstallerLicense = Join-Path $pyinstallerDist.FullName "licenses/COPYING.txt"
-          if (-not (Test-Path $pyinstallerLicense)) { throw "Не найдена лицензия PyInstaller: $pyinstallerLicense" }
-          Copy-Item $pyinstallerLicense build-notices/PyInstaller-COPYING.txt
+          Copy-Item licenses/PyInstaller-COPYING.txt build-notices/PyInstaller-COPYING.txt
 
       - name: Build the one-file Windows launcher
         shell: pwsh

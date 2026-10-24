@@ -40,6 +40,8 @@ class MobileAppStageThreeTests(unittest.TestCase):
         self.assertIn("CALIBRE-PC.exe", workflow)
         self.assertIn("--self-test", workflow)
         self.assertIn("--self-test", launcher)
+        self.assertTrue((ROOT / "licenses" / "PyInstaller-COPYING.txt").is_file())
+        self.assertIn("licenses/PyInstaller-COPYING.txt", workflow)
 
     def test_android_allows_local_http_and_one_command_apk_output_is_configured(self):
         manifest = (ROOT / "mobile/android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
