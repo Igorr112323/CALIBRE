@@ -114,11 +114,11 @@ jobs:
         run: |
           & "dist/CALIBRE-PC.exe" --self-test
           if ($LASTEXITCODE -ne 0) {
-            $log = Join-Path $env:LOCALAPPDATA "CALIBRE/self-test.log"
-            if (Test-Path $log) {
-              $details = (Get-Content $log -Raw).Replace("`r", " ").Replace("`n", " | ")
-              Write-Output "::error title=Windows EXE self-test details::$details"
-            }
+            $logDir = Join-Path $env:LOCALAPPDATA "CALIBRE"
+            $log = Join-Path $logDir "self-test.log"
+            if (-not (Test-Path $log)) { $log = Join-Path $logDir "launcher-error.log" }
+            $details = if (Test-Path $log) { (Get-Content $log -Raw).Replace("`r", " ").Replace("`n", " | ") } else { "No launcher diagnostic file was created." }
+            Write-Output "::error title=Windows EXE self-test failed (exit $LASTEXITCODE)::$details"
             throw "Самопроверка автономного EXE завершилась ошибкой: $LASTEXITCODE"
           }
 

@@ -214,4 +214,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except BaseException:
+        log_root = Path(os.environ.get("CALIBRE_DATA_DIR", Path.home() / "CALIBRE"))
+        log_root.mkdir(parents=True, exist_ok=True)
+        (log_root / "launcher-error.log").write_text(traceback.format_exc(), encoding="utf-8")
+        raise
