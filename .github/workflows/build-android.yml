@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-debug-apk:
@@ -52,3 +52,18 @@ jobs:
           path: dist/CALIBRE-debug.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish direct APK download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="stage3-apk-${GITHUB_RUN_NUMBER}"
+          sha256sum dist/CALIBRE-debug.apk > dist/SHA256SUMS.txt
+          gh release create "$tag" \
+            dist/CALIBRE-debug.apk \
+            dist/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "КАЛИБР — тестовый APK этапа 3 (сборка ${GITHUB_RUN_NUMBER})" \
+            --notes "Отладочная тестовая сборка для проверки пользователем. Не является публикационным релизом. Демо-карточки помечены ДЕМО; не использовать их для настройки техники."
