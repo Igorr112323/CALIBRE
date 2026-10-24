@@ -80,7 +80,7 @@ jobs:
           npm ci
           npm run build
 
-      - name: Package the self-contained Windows launcher
+      - name: Install Windows packaging dependencies and notices
         shell: pwsh
         run: |
           python -m pip install --disable-pip-version-check -r requirements-desktop.txt
@@ -89,7 +89,13 @@ jobs:
           $sitePackages = python -c "import site; print(site.getsitepackages()[0])"
           $pyinstallerDist = Get-ChildItem $sitePackages -Directory -Filter "pyinstaller-*.dist-info" | Select-Object -First 1
           if (-not $pyinstallerDist) { throw "Не найдены сведения о лицензии PyInstaller" }
-          Copy-Item (Join-Path $pyinstallerDist.FullName "licenses/COPYING.txt") build-notices/PyInstaller-COPYING.txt
+          $pyinstallerLicense = Join-Path $pyinstallerDist.FullName "licenses/COPYING.txt"
+          if (-not (Test-Path $pyinstallerLicense)) { throw "Не найдена лицензия PyInstaller: $pyinstallerLicense" }
+          Copy-Item $pyinstallerLicense build-notices/PyInstaller-COPYING.txt
+
+      - name: Build the one-file Windows launcher
+        shell: pwsh
+        run: |
           python -m PyInstaller --clean --noconfirm --onefile --windowed --name CALIBRE-PC `
             --add-data "alembic.ini;." `
             --add-data "migrations;migrations" `
@@ -102,6 +108,10 @@ jobs:
             --hidden-import sqlalchemy.dialects.sqlite `
             desktop_launcher.py
           if (-not (Test-Path "dist/CALIBRE-PC.exe")) { throw "Не создан dist/CALIBRE-PC.exe" }
+
+      - name: Smoke-test the standalone Windows executable
+        shell: pwsh
+        run: |
           & "dist/CALIBRE-PC.exe" --self-test
           if ($LASTEXITCODE -ne 0) { throw "Самопроверка автономного EXE завершилась ошибкой: $LASTEXITCODE" }
 
