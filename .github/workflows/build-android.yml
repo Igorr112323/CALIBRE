@@ -80,15 +80,21 @@ jobs:
           npm ci
           npm run build
 
-      - name: Install Windows packaging dependencies and notices
+      - name: Install Windows packaging dependencies
         shell: pwsh
         run: |
           python -m pip install --disable-pip-version-check -r requirements-desktop.txt
+          if ($LASTEXITCODE -ne 0) { throw "Установка Python-зависимостей завершилась с кодом $LASTEXITCODE" }
+
+      - name: Bundle third-party license notices
+        shell: pwsh
+        run: |
           New-Item -ItemType Directory -Force -Path build-notices | Out-Null
           Copy-Item THIRD_PARTY_NOTICES.md build-notices/THIRD_PARTY_NOTICES.md
           $sitePackages = python -c "import site; print(site.getsitepackages()[0])"
+          if ($LASTEXITCODE -ne 0) { throw "Не удалось определить каталог Python-пакетов" }
           $pyinstallerDist = Get-ChildItem $sitePackages -Directory -Filter "pyinstaller-*.dist-info" | Select-Object -First 1
-          if (-not $pyinstallerDist) { throw "Не найдены сведения о лицензии PyInstaller" }
+          if (-not $pyinstallerDist) { throw "Не найдены сведения о лицензии PyInstaller в $sitePackages" }
           $pyinstallerLicense = Join-Path $pyinstallerDist.FullName "licenses/COPYING.txt"
           if (-not (Test-Path $pyinstallerLicense)) { throw "Не найдена лицензия PyInstaller: $pyinstallerLicense" }
           Copy-Item $pyinstallerLicense build-notices/PyInstaller-COPYING.txt
