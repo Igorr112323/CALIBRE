@@ -5,26 +5,34 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class MobileAppStageThreeTests(unittest.TestCase):
-    def test_mobile_navigation_has_only_home_and_machines_and_no_settings_panel(self):
+    def test_mobile_has_no_redundant_bottom_navigation_or_settings_panel(self):
         app = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
         html = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
-        self.assertIn('data-action="home"', html)
-        self.assertIn('data-action="catalog"', html)
-        navigation = html.split('<nav class="bottom-nav"', 1)[1].split('</nav>', 1)[0]
-        self.assertEqual(navigation.count('<button'), 2)
+        self.assertNotIn('<nav class="bottom-nav"', html)
+        self.assertNotIn('data-action="catalog"', html)
         self.assertNotIn('data-action="settings"', html)
         self.assertNotIn('settings-shortcut', html)
         self.assertNotIn('statusStrip', html)
+        self.assertNotIn("renderCatalog", app)
+        self.assertNotIn('data-action="catalog"', app)
         self.assertNotIn('renderSettings', app)
         self.assertNotIn('renderStatus', app)
 
-    def test_mobile_has_two_empty_test_machines_and_requested_home_messages_are_removed(self):
+    def test_mobile_has_two_populated_machine_cards_and_no_fake_data_label(self):
         app = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
         html = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
         css = (ROOT / "web/app/app.css").read_text(encoding="utf-8")
-        self.assertIn("model: 'Машина 1'", app)
-        self.assertIn("model: 'Машина 2'", app)
-        self.assertEqual(app.count("model: 'Машина "), 2)
+        self.assertIn("model: 'МТЗ-82.1'", app)
+        self.assertIn("model: 'Кировец К-700А'", app)
+        self.assertIn("title: 'Двигатель'", app)
+        self.assertIn("title: 'Трансмиссия'", app)
+        self.assertIn("title: 'Гидросистема'", app)
+        self.assertIn("title: 'Двигатель не запускается'", app)
+        self.assertIn("title: 'Рабочее оборудование не реагирует'", app)
+        self.assertIn("machine-overview", app)
+        self.assertNotIn("Машина 1", app)
+        self.assertNotIn("Машина 2", app)
+        self.assertNotIn("СИНТЕТИЧЕСКИЕ ДАННЫЕ", app)
         self.assertNotIn("ДЕМО", app)
         self.assertNotIn("demo", app.lower())
         self.assertNotIn(" · офлайн", html)

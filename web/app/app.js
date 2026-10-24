@@ -35,8 +35,44 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({
 const newEventId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const asArray = value => Array.isArray(value) ? value : [];
 const TEST_MACHINES = [
-  { id: 'machine-1', model: 'Машина 1', machine_type: 'Сельскохозяйственная машина', nodes: [], problems: [], characteristics: [] },
-  { id: 'machine-2', model: 'Машина 2', machine_type: 'Сельскохозяйственная машина', nodes: [], problems: [], characteristics: [] },
+  {
+    id: 'machine-1', model: 'МТЗ-82.1', machine_type: 'Колёсный трактор',
+    characteristics: [
+      { label: 'Класс', value: 'Универсально-пропашной' },
+      { label: 'Двигатель', value: 'Дизельный' },
+      { label: 'Трансмиссия', value: 'Механическая' },
+      { label: 'Рабочее место', value: 'Кабина оператора' },
+    ],
+    nodes: [
+      { id: 'engine-1', number: '01', title: 'Двигатель', purpose: 'Силовой агрегат и системы его обслуживания.', adjustments: [] },
+      { id: 'transmission-1', number: '02', title: 'Трансмиссия', purpose: 'Узлы передачи и распределения крутящего момента.', adjustments: [] },
+      { id: 'hydraulics-1', number: '03', title: 'Гидросистема', purpose: 'Система управления навесным оборудованием.', adjustments: [] },
+      { id: 'steering-1', number: '04', title: 'Рулевое управление', purpose: 'Органы и механизмы управления направлением движения.', adjustments: [] },
+    ],
+    problems: [
+      { id: 'start-1', title: 'Двигатель не запускается', symptom: 'Запуск не происходит или сопровождается необычными признаками.', steps: [{ instruction: 'Отметьте показания приборов и условия, при которых проявился симптом.' }, { instruction: 'Осмотрите машину на наличие видимых предупреждений или утечек.' }] },
+      { id: 'hydraulics-1-problem', title: 'Навесное оборудование не реагирует', symptom: 'Оборудование не выполняет ожидаемое движение.', steps: [{ instruction: 'Уточните, при каких условиях появляется симптом.' }, { instruction: 'Запишите состояние индикаторов и видимые изменения в работе системы.' }] },
+    ],
+  },
+  {
+    id: 'machine-2', model: 'Кировец К-700А', machine_type: 'Тяжёлый колёсный трактор',
+    characteristics: [
+      { label: 'Назначение', value: 'Тяговые и полевые работы' },
+      { label: 'Двигатель', value: 'Дизельный' },
+      { label: 'Трансмиссия', value: 'Механическая' },
+      { label: 'Рабочее место', value: 'Кабина оператора' },
+    ],
+    nodes: [
+      { id: 'engine-2', number: '01', title: 'Двигатель', purpose: 'Силовой агрегат и связанные системы.', adjustments: [] },
+      { id: 'transmission-2', number: '02', title: 'Трансмиссия', purpose: 'Узлы передачи мощности к движителям.', adjustments: [] },
+      { id: 'articulation-2', number: '03', title: 'Шарнирное сочленение', purpose: 'Узел соединения полурам и поворота машины.', adjustments: [] },
+      { id: 'hydraulics-2', number: '04', title: 'Гидросистема', purpose: 'Управление рабочими органами и оборудованием.', adjustments: [] },
+    ],
+    problems: [
+      { id: 'movement-2', title: 'Изменилось поведение при движении', symptom: 'Появились непривычные звуки или изменения в управлении.', steps: [{ instruction: 'Зафиксируйте условия появления и характер изменения.' }, { instruction: 'Передайте наблюдения специалисту для дальнейшей проверки.' }] },
+      { id: 'equipment-2', title: 'Рабочее оборудование не реагирует', symptom: 'Оборудование не выполняет ожидаемое движение.', steps: [{ instruction: 'Уточните, при каких условиях появляется симптом.' }, { instruction: 'Запишите показания приборов и состояние индикаторов.' }] },
+    ],
+  },
 ];
 
 function openIndexedDb() {
@@ -153,8 +189,7 @@ function setMessage(message, kind = '') {
 }
 
 function machineList() {
-  const publishedMachines = asArray(appState.catalog.real_machines);
-  return isNative || publishedMachines.length === 0 ? TEST_MACHINES : publishedMachines;
+  return TEST_MACHINES;
 }
 function findMachine(id = ui.machineId) {
   return machineList().find(machine => String(machine.id) === String(id)) ?? null;
@@ -167,7 +202,6 @@ function findProblem(machine, id = ui.problemId) {
 }
 function titleForScreen() {
   const machine = findMachine();
-  if (ui.screen === 'catalog') return ['Машины', 'Каталог техники'];
   if (ui.screen === 'machine') return [machine?.model || 'Машина', machine?.machine_type || 'Карточка машины'];
   if (ui.screen === 'node') return ['Карточка узла', machine?.model || 'Машина'];
   if (ui.screen === 'problem') return ['Что-то не так', machine?.model || 'Машина'];
@@ -197,16 +231,12 @@ function setScreen(screen) {
 function render() {
   const [title, subtitle] = titleForScreen();
   const titleElement = $('#title');
-  titleElement.innerHTML = ['home', 'catalog'].includes(ui.screen)
+  titleElement.innerHTML = ui.screen === 'home'
     ? '<span class="logo">Kolibri</span><small>Справочник сельхозтехники</small>'
     : `${escapeHtml(title)}<small>${escapeHtml(subtitle)}</small>`;
   $('#back').classList.toggle('show', ['machine', 'node', 'problem'].includes(ui.screen));
-  document.querySelectorAll('.bottom-nav button').forEach(button => {
-    button.classList.toggle('active', button.dataset.action === (ui.screen === 'catalog' || ui.screen === 'machine' || ui.screen === 'node' || ui.screen === 'problem' ? 'catalog' : 'home'));
-  });
   const main = $('#main');
   if (ui.screen === 'home') main.innerHTML = renderHome();
-  else if (ui.screen === 'catalog') main.innerHTML = renderCatalog();
   else if (ui.screen === 'machine') main.innerHTML = renderMachine();
   else if (ui.screen === 'node') main.innerHTML = renderNodeScreen();
   else if (ui.screen === 'problem') main.innerHTML = renderProblemScreen();
@@ -262,7 +292,7 @@ function tractorIllustration() {
 }
 
 function renderMachineCard(machine, index = 0) {
-  return `<article class="machine-card card-tone-${index % 2}" data-action="open-machine" data-id="${escapeHtml(machine.id)}"><h3>${escapeHtml(machine.model || 'Машина')}</h3><span class="machine-open" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>${tractorIllustration()}</article>`;
+  return `<article class="machine-card card-tone-${index % 2}" data-action="open-machine" data-id="${escapeHtml(machine.id)}"><h3>${escapeHtml(machine.model || 'Машина')}</h3><p>${escapeHtml(machine.machine_type || 'Сельхозтехника')}</p><span class="machine-open" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>${tractorIllustration()}</article>`;
 }
 
 function renderMachineList() {
@@ -271,15 +301,11 @@ function renderMachineList() {
 }
 
 function renderHome() {
-  return `${machineSearchField()}<h2 class="catalog-heading">Каталог</h2><div class="machine-list">${renderMachineList()}</div>`;
-}
-
-function renderCatalog() {
-  return `${machineSearchField()}<h2 class="catalog-heading">Каталог</h2><div class="machine-list">${renderMachineList()}</div>`;
+  return `${machineSearchField()}<h2 class="catalog-heading">Техника</h2><div class="machine-list">${renderMachineList()}</div>`;
 }
 
 function renderScheme() {
-  return '<div class="catalog-empty">Схема машины пока не добавлена.</div>';
+  return `<section class="machine-overview"><h3>Основные узлы</h3><p>Выберите раздел, чтобы открыть карточку и описание.</p><div class="overview-tags">${asArray(findMachine()?.nodes).slice(0, 4).map(node => `<span>${escapeHtml(node.title)}</span>`).join('')}</div></section>`;
 }
 
 function renderMachine() {
@@ -465,7 +491,6 @@ async function saveQuestion(event) {
 async function handleAction(action, element) {
   if (action === 'back') goBack();
   else if (action === 'home') setScreen('home');
-  else if (action === 'catalog') setScreen('catalog');
   else if (action === 'open-machine') { ui.tab = 'scheme'; go('machine', { machineId: element.dataset.id }); }
   else if (action === 'open-node') go('node', { nodeId: element.dataset.id });
   else if (action === 'open-problem') go('problem', { problemId: element.dataset.id });
