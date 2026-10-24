@@ -34,6 +34,10 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({
 }[char]));
 const newEventId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const asArray = value => Array.isArray(value) ? value : [];
+const TEST_MACHINES = [
+  { id: 'test-machine-1', model: 'Тестовая машина 1', machine_type: 'Тестовая карточка', manufacturer: 'ТЕСТ', is_demo: true, nodes: [], problems: [], characteristics: [] },
+  { id: 'test-machine-2', model: 'Тестовая машина 2', machine_type: 'Тестовая карточка', manufacturer: 'ТЕСТ', is_demo: true, nodes: [], problems: [], characteristics: [] },
+];
 
 function openIndexedDb() {
   return new Promise((resolve, reject) => {
@@ -146,25 +150,10 @@ async function persist() {
 function setMessage(message, kind = '') {
   ui.message = message;
   ui.messageKind = kind;
-  renderStatus();
-}
-
-function renderStatus() {
-  const strip = $('#statusStrip');
-  if (!strip) return;
-  const queueCount = appState.feedbackQueue.length + appState.questionQueue.length;
-  const isDemo = asArray(appState.catalog.demo_machines).length > 0;
-  const parts = [];
-  if (isDemo) parts.push('ДЕМО — примерные данные, не применять для настройки техники');
-  else parts.push(navigator.onLine === false ? 'ОФЛАЙН · сохранённые карточки доступны' : 'КАЛИБР · локальная база на устройстве');
-  parts.push(`Хранилище: ${storageLabel}`);
-  if (queueCount) parts.push(`В очереди отправки: ${queueCount}`);
-  if (ui.message) parts.push(ui.message);
-  strip.textContent = parts.join(' · ');
-  strip.className = `status-strip${isDemo ? ' demo' : ''}${ui.messageKind === 'bad' ? ' error' : ui.messageKind === 'good' ? ' online' : ''}`;
 }
 
 function machineList() {
+  if (isNative) return TEST_MACHINES;
   return [...asArray(appState.catalog.real_machines), ...asArray(appState.catalog.demo_machines)];
 }
 function findMachine(id = ui.machineId) {
@@ -180,9 +169,8 @@ function isDemo(machine) { return Boolean(machine?.is_demo); }
 function demoBadge(machine) { return isDemo(machine) ? '<span class="badge demo">ДЕМО</span>' : ''; }
 function titleForScreen() {
   const machine = findMachine();
-  if (ui.screen === 'settings') return ['Настройки', 'Сервер, хранение и синхронизация'];
-  if (ui.screen === 'catalog') return ['Машины в базе', 'Опубликованный справочник'];
-  if (ui.screen === 'machine') return [isDemo(machine) ? 'Образец ДЕМО' : (machine?.model || 'Машина'), machine?.machine_type || 'Карточка машины'];
+  if (ui.screen === 'catalog') return ['Машины', 'Тестовые карточки'];
+  if (ui.screen === 'machine') return [machine?.model || 'Машина', machine?.machine_type || 'Карточка машины'];
   if (ui.screen === 'node') return ['Карточка узла', machine?.model || 'ДЕМО'];
   if (ui.screen === 'problem') return ['Что-то не так', machine?.model || 'ДЕМО'];
   return ['КАЛИБР', 'Настройки сельхозмашин · офлайн'];
@@ -214,7 +202,7 @@ function render() {
   titleElement.innerHTML = `${ui.screen === 'home' ? '<span class="logo">КАЛИБР</span>' : escapeHtml(title)}<small>${escapeHtml(subtitle)}</small>`;
   $('#back').classList.toggle('show', ui.screen !== 'home');
   document.querySelectorAll('.bottom-nav button').forEach(button => {
-    button.classList.toggle('active', button.dataset.action === (ui.screen === 'catalog' || ui.screen === 'machine' || ui.screen === 'node' || ui.screen === 'problem' ? 'catalog' : ui.screen === 'settings' ? 'settings' : 'home'));
+    button.classList.toggle('active', button.dataset.action === (ui.screen === 'catalog' || ui.screen === 'machine' || ui.screen === 'node' || ui.screen === 'problem' ? 'catalog' : 'home'));
   });
   const main = $('#main');
   if (ui.screen === 'home') main.innerHTML = renderHome();
@@ -222,8 +210,6 @@ function render() {
   else if (ui.screen === 'machine') main.innerHTML = renderMachine();
   else if (ui.screen === 'node') main.innerHTML = renderNodeScreen();
   else if (ui.screen === 'problem') main.innerHTML = renderProblemScreen();
-  else if (ui.screen === 'settings') main.innerHTML = renderSettings();
-  renderStatus();
   main.scrollTop = 0;
 }
 
@@ -273,7 +259,7 @@ function renderHome() {
   const demos = machines.filter(isDemo);
   const demoHtml = demos.map(machine => `<article class="card machine-card" data-action="open-machine" data-id="${escapeHtml(machine.id)}"><div class="machine-art" aria-hidden="true">◌</div><div class="machine-info"><div class="machine-line">${demoBadge(machine)}</div><h3>${escapeHtml(machine.model || 'Учебный образец')}</h3><p>${escapeHtml(machine.machine_type || 'Демонстрационная карточка')}</p><p>${asArray(machine.nodes).length} узлов · ${asArray(machine.problems).length} примеров проблем</p></div><span class="arrow">›</span></article>`).join('');
   const realHtml = realMachines.map(machine => `<article class="card machine-card" data-action="open-machine" data-id="${escapeHtml(machine.id)}"><div class="machine-art" aria-hidden="true">◌</div><div class="machine-info"><span class="badge verified">ОПУБЛИКОВАНО</span><h3>${escapeHtml(machine.model)}</h3><p>${escapeHtml(machine.machine_type)}</p></div><span class="arrow">›</span></article>`).join('');
-  return `<section class="search"><span aria-hidden="true">🔍</span><input id="homeSearch" value="${escapeHtml(ui.searchQuery)}" placeholder="Например: высота, ремни, шум…" autocomplete="off" aria-label="Поиск по справочнику"></section><div class="hint">Поиск работает по сохранённым карточкам. Без интернета доступны данные последней синхронизации.</div><div id="homeResults"></div><button class="btn ghost" data-action="photo">📷 Найти узел по фото</button><div class="section">Машины в базе</div>${realHtml}${demoHtml}${machines.length ? '' : '<div class="catalog-empty">Сохранённых карточек пока нет.<br>Подключитесь к серверу и выполните синхронизацию.</div>'}<aside class="notice">Перед настройкой сверяйтесь с паспортом конкретной машины. Карточки со статусом «ДЕМО» — только для знакомства с приложением, не для выполнения работ.</aside>`;
+  return `<section class="search"><span aria-hidden="true">🔍</span><input id="homeSearch" value="${escapeHtml(ui.searchQuery)}" placeholder="Например: высота, ремни, шум…" autocomplete="off" aria-label="Поиск по справочнику"></section><div id="homeResults"></div><button class="btn ghost" data-action="photo">📷 Найти узел по фото</button><div class="section">Машины в базе</div>${realHtml}${demoHtml}${machines.length ? '' : '<div class="catalog-empty">Сохранённых карточек пока нет.<br>Подключитесь к серверу и выполните синхронизацию.</div>'}`;
 }
 
 function renderCatalog() {
@@ -338,16 +324,6 @@ function renderProblemScreen() {
     return `<article class="card step"><div class="step-n">${index + 1}</div><div><p>${escapeHtml(step.instruction)}</p>${linkedNode ? `<span class="link" data-action="open-node" data-id="${escapeHtml(linkedNode.id)}">→ Узел ${escapeHtml(linkedNode.number)}: ${escapeHtml(linkedNode.title)}</span>` : ''}</div></article>`;
   }).join('');
   return `${demo ? '<div class="demo-banner">ДЕМО · пример симптома, не диагностика</div>' : ''}<article class="card"><h2 style="font-size:16px;line-height:1.35;margin:0">${escapeHtml(problem.title)}</h2><p class="hint" style="margin:7px 0 0">${escapeHtml(problem.symptom)}</p><p class="metadata">Проверяйте по шагам только по подтверждённым данным.</p></article>${steps || '<div class="catalog-empty">Шаги проверки не опубликованы.</div>'}<article class="card"><b style="font-size:14px">Проблема решена?</b><div class="fb"><button data-action="feedback" data-kind="problem" data-id="${escapeHtml(problem.id)}" data-helpful="true">✅ Да</button><button data-action="feedback" data-kind="problem" data-id="${escapeHtml(problem.id)}" data-helpful="false">❌ Нет</button></div><p class="metadata">Ответ сохранится в очереди и отправится при подключении.</p></article><button class="btn ghost" data-action="ask" data-context="problem">Задать вопрос экспертам</button>`;
-}
-
-function formatDate(value) {
-  if (!value) return 'Ещё не синхронизировалось';
-  const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? 'Дата не определена' : new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
-}
-function renderSettings() {
-  const queueCount = appState.feedbackQueue.length + appState.questionQueue.length;
-  return `<h2 class="screen-title">Настройки</h2><p class="hint">Адрес локального компьютера-сервера укажите из окна КАЛИБР. Телефон и компьютер должны быть в одной сети.</p><article class="card"><label class="field"><span>Адрес сервера</span><input id="serverUrl" type="url" inputmode="url" placeholder="http://192.168.…:8765" value="${escapeHtml(appState.serverUrl)}" autocomplete="url"></label><p class="metadata">Пример: http://192.168.1.20:8765 · в мобильном приложении не указывайте 127.0.0.1.</p><div class="sync-actions"><button class="btn ghost" data-action="check-server" ${ui.syncBusy ? 'disabled' : ''}>Проверить связь</button><button class="btn" data-action="sync" ${ui.syncBusy ? 'disabled' : ''}>${ui.syncBusy ? 'Синхронизация…' : 'Синхронизировать'}</button></div><div class="result-msg ${ui.messageKind === 'bad' ? 'bad' : ui.messageKind === 'good' ? 'good' : ''}">${escapeHtml(ui.message || '')}</div></article><article class="card"><div class="section" style="margin-top:0">Состояние устройства</div><div class="settings-row"><span>Локальное хранилище</span><strong>${escapeHtml(storageLabel)}</strong></div><div class="settings-row"><span>Последняя синхронизация</span><strong>${escapeHtml(formatDate(appState.lastSync))}</strong></div><div class="settings-row"><span>Состояние каталога</span><strong>${navigator.onLine === false ? 'Автономный режим' : 'Карточки сохранены'}</strong></div><div class="settings-row"><span>Ожидают отправки</span><strong class="queue-count">${queueCount}</strong></div><div class="settings-row"><span>Вопросы</span><strong>${appState.questionQueue.length}</strong></div><div class="settings-row"><span>Отзывы «Помогло?»</span><strong>${appState.feedbackQueue.length}</strong></div></article><div class="notice">Каталог и очередь сохраняются на этом устройстве. Отзывы и вопросы отправляются только на указанный сервер; сетевых сервисов или платных API нет.</div>`;
 }
 
 function getApiUrl(path) {
@@ -445,7 +421,6 @@ async function queueFeedback(targetType, targetId, helpful) {
     try { await flushQueues(); setMessage('Спасибо! Ответ отправлен серверу.', 'good'); }
     catch { setMessage('Спасибо! Ответ останется в очереди до связи с сервером.', 'good'); }
   }
-  if (ui.screen === 'settings') render();
 }
 
 function openModal(content) {
@@ -484,7 +459,6 @@ async function saveQuestion(event) {
     try { await flushQueues(); setMessage('Вопрос отправлен на сервер.', 'good'); }
     catch { setMessage('Вопрос останется в очереди до связи с сервером.', 'good'); }
   }
-  if (ui.screen === 'settings') render();
 }
 
 function openPhotoDemo() {
@@ -497,7 +471,6 @@ async function handleAction(action, element) {
   if (action === 'back') goBack();
   else if (action === 'home') setScreen('home');
   else if (action === 'catalog') setScreen('catalog');
-  else if (action === 'settings') setScreen('settings');
   else if (action === 'open-machine') { ui.tab = 'scheme'; go('machine', { machineId: element.dataset.id }); }
   else if (action === 'open-node') go('node', { nodeId: element.dataset.id });
   else if (action === 'open-problem') go('problem', { problemId: element.dataset.id });
@@ -505,7 +478,6 @@ async function handleAction(action, element) {
     if (element.dataset.kind === 'node') go('node', { machineId: element.dataset.machineId, nodeId: element.dataset.id });
     else go('problem', { machineId: element.dataset.machineId, problemId: element.dataset.id });
   } else if (action === 'tab') { ui.tab = element.dataset.tab; render(); }
-  else if (action === 'settings') setScreen('settings');
   else if (action === 'photo') openPhotoDemo();
   else if (action === 'close-modal') closeModal();
   else if (action === 'ask') openQuestion(element.dataset.context);

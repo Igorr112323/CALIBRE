@@ -5,9 +5,34 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class MobileAppStageThreeTests(unittest.TestCase):
-    def test_settings_and_offline_queue_are_present_in_mobile_bundle_source(self):
+    def test_mobile_navigation_has_only_home_and_machines_and_no_settings_panel(self):
         app = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
         html = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
+        self.assertIn('data-action="home"', html)
+        self.assertIn('data-action="catalog"', html)
+        navigation = html.split('<nav class="bottom-nav"', 1)[1].split('</nav>', 1)[0]
+        self.assertEqual(navigation.count('<button'), 2)
+        self.assertNotIn('data-action="settings"', html)
+        self.assertNotIn('settings-shortcut', html)
+        self.assertNotIn('statusStrip', html)
+        self.assertNotIn('renderSettings', app)
+        self.assertNotIn('renderStatus', app)
+
+    def test_mobile_has_two_empty_test_machines_and_requested_home_messages_are_removed(self):
+        app = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
+        html = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
+        css = (ROOT / "web/app/app.css").read_text(encoding="utf-8")
+        self.assertIn("Тестовая машина 1", app)
+        self.assertIn("Тестовая машина 2", app)
+        self.assertEqual(app.count("model: 'Тестовая машина"), 2)
+        self.assertNotIn("Поиск работает по сохранённым карточкам", app)
+        self.assertNotIn("Перед настройкой сверяйтесь", app)
+        self.assertNotIn("Хранилище:", app)
+        self.assertNotIn(".status-strip", css)
+        self.assertNotIn(".notice", css)
+
+    def test_offline_storage_and_queue_support_remains_in_mobile_source(self):
+        app = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
         self.assertIn("IndexedDB в браузере", app)
         self.assertIn("localStorageFallback", app)
         self.assertIn("@capacitor-community/sqlite", app)
@@ -15,10 +40,6 @@ class MobileAppStageThreeTests(unittest.TestCase):
         self.assertIn("feedbackQueue", app)
         self.assertIn("questionQueue", app)
         self.assertIn("networkStatusChange", app)
-        self.assertIn("Проверить связь", app)
-        self.assertIn("Синхронизировать", app)
-        self.assertIn("Последняя синхронизация", app)
-        self.assertIn("data-action=\"settings\"", html)
 
     def test_pc_preview_is_bound_to_loopback_and_proxies_only_to_local_server(self):
         config = (ROOT / "mobile/vite.config.mjs").read_text(encoding="utf-8")
