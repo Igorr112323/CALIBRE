@@ -32,13 +32,6 @@ jobs:
           cache: gradle
           cache-dependency-path: mobile/android/**/*.gradle*
 
-      - name: Verify Android SDK on GitHub runner
-        run: |
-          echo "ANDROID_HOME=${ANDROID_HOME}"
-          command -v sdkmanager
-          sdkmanager --version
-          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
-
       - name: Install JavaScript dependencies and sync Capacitor
         working-directory: mobile
         run: |
