@@ -67,7 +67,12 @@ def run_self_test() -> None:
 def main() -> None:
     configure_user_data()
     if "--self-test" in sys.argv:
-        run_self_test()
+        try:
+            run_self_test()
+        except BaseException:
+            log_path = Path(os.environ["CALIBRE_DATA_DIR"]) / "self-test.log"
+            log_path.write_text(traceback.format_exc(), encoding="utf-8")
+            raise
         return
     import tkinter as tk
     from tkinter import messagebox

@@ -113,7 +113,14 @@ jobs:
         shell: pwsh
         run: |
           & "dist/CALIBRE-PC.exe" --self-test
-          if ($LASTEXITCODE -ne 0) { throw "Самопроверка автономного EXE завершилась ошибкой: $LASTEXITCODE" }
+          if ($LASTEXITCODE -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA "CALIBRE/self-test.log"
+            if (Test-Path $log) {
+              $details = (Get-Content $log -Raw).Replace("`r", " ").Replace("`n", " | ")
+              Write-Output "::error title=Windows EXE self-test details::$details"
+            }
+            throw "Самопроверка автономного EXE завершилась ошибкой: $LASTEXITCODE"
+          }
 
       - name: Upload Windows EXE artifact
         uses: actions/upload-artifact@v4
