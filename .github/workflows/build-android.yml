@@ -93,6 +93,29 @@ jobs:
           Copy-Item THIRD_PARTY_NOTICES.md build-notices/THIRD_PARTY_NOTICES.md
           Copy-Item licenses/PyInstaller-COPYING.txt build-notices/PyInstaller-COPYING.txt
 
+      - name: Build and smoke-test the console diagnostic executable
+        shell: pwsh
+        run: |
+          python -m PyInstaller --clean --noconfirm --onefile --console --name CALIBRE-PC-selftest `
+            --add-data "alembic.ini;." `
+            --add-data "migrations;migrations" `
+            --add-data "web;web" `
+            --add-data "mobile/www;mobile/www" `
+            --add-data "build-notices;licenses" `
+            --collect-all alembic `
+            --collect-all uvicorn `
+            --collect-all sqlalchemy `
+            --hidden-import sqlalchemy.dialects.sqlite `
+            desktop_launcher.py
+          if (-not (Test-Path "dist/CALIBRE-PC-selftest.exe")) { throw "Не создан диагностический EXE" }
+          $output = & "dist/CALIBRE-PC-selftest.exe" --self-test 2>&1 | Out-String
+          $testCode = $LASTEXITCODE
+          if ($testCode -ne 0) {
+            $details = $output.Replace("`r", " ").Replace("`n", " | ")
+            Write-Output "::error title=Windows EXE self-test failed (exit $testCode)::$details"
+            throw "Самопроверка диагностического EXE завершилась ошибкой: $testCode"
+          }
+
       - name: Build the one-file Windows launcher
         shell: pwsh
         run: |
@@ -108,19 +131,6 @@ jobs:
             --hidden-import sqlalchemy.dialects.sqlite `
             desktop_launcher.py
           if (-not (Test-Path "dist/CALIBRE-PC.exe")) { throw "Не создан dist/CALIBRE-PC.exe" }
-
-      - name: Smoke-test the standalone Windows executable
-        shell: pwsh
-        run: |
-          & "dist/CALIBRE-PC.exe" --self-test
-          if ($LASTEXITCODE -ne 0) {
-            $logDir = Join-Path $env:LOCALAPPDATA "CALIBRE"
-            $log = Join-Path $logDir "self-test.log"
-            if (-not (Test-Path $log)) { $log = Join-Path $logDir "launcher-error.log" }
-            $details = if (Test-Path $log) { (Get-Content $log -Raw).Replace("`r", " ").Replace("`n", " | ") } else { "No launcher diagnostic file was created." }
-            Write-Output "::error title=Windows EXE self-test failed (exit $LASTEXITCODE)::$details"
-            throw "Самопроверка автономного EXE завершилась ошибкой: $LASTEXITCODE"
-          }
 
       - name: Upload Windows EXE artifact
         uses: actions/upload-artifact@v4
