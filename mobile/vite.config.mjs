@@ -7,6 +7,8 @@ const appRoot = path.resolve(here, '../web/app');
 
 export default defineConfig({
   root: appRoot,
+  // Relative asset paths work both inside the APK and under /preview/ in the PC EXE.
+  base: './',
   publicDir: false,
   resolve: {
     alias: {

@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Windows EXE and Android APK
 
 on:
   push:
@@ -48,22 +48,94 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CALIBRE-debug-apk
+          name: CALIBRE-build-android
           path: dist/CALIBRE-debug.apk
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish direct APK download
+  build-windows-exe:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - name: Check out the session branch
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-desktop.txt
+
+      - name: Build embedded browser app
+        working-directory: mobile
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package the self-contained Windows launcher
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements-desktop.txt
+          New-Item -ItemType Directory -Force -Path build-notices | Out-Null
+          Copy-Item THIRD_PARTY_NOTICES.md build-notices/THIRD_PARTY_NOTICES.md
+          $sitePackages = python -c "import site; print(site.getsitepackages()[0])"
+          $pyinstallerDist = Get-ChildItem $sitePackages -Directory -Filter "pyinstaller-*.dist-info" | Select-Object -First 1
+          if (-not $pyinstallerDist) { throw "Не найдены сведения о лицензии PyInstaller" }
+          Copy-Item (Join-Path $pyinstallerDist.FullName "licenses/COPYING.txt") build-notices/PyInstaller-COPYING.txt
+          python -m PyInstaller --clean --noconfirm --onefile --windowed --name CALIBRE-PC `
+            --add-data "alembic.ini;." `
+            --add-data "migrations;migrations" `
+            --add-data "web;web" `
+            --add-data "mobile/www;mobile/www" `
+            --add-data "build-notices;licenses" `
+            --collect-all alembic `
+            --collect-all uvicorn `
+            --collect-all sqlalchemy `
+            --hidden-import sqlalchemy.dialects.sqlite `
+            desktop_launcher.py
+          if (-not (Test-Path "dist/CALIBRE-PC.exe")) { throw "Не создан dist/CALIBRE-PC.exe" }
+          & "dist/CALIBRE-PC.exe" --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Самопроверка автономного EXE завершилась ошибкой: $LASTEXITCODE" }
+
+      - name: Upload Windows EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CALIBRE-build-windows
+          path: dist/CALIBRE-PC.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-test-downloads:
+    needs: [build-debug-apk, build-windows-exe]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download both build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: CALIBRE-build-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Publish direct downloads
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="stage3-apk-${GITHUB_RUN_NUMBER}"
-          sha256sum dist/CALIBRE-debug.apk > dist/SHA256SUMS.txt
+          tag="stage3-test-${GITHUB_RUN_NUMBER}"
+          sha256sum release-assets/CALIBRE-debug.apk release-assets/CALIBRE-PC.exe > release-assets/SHA256SUMS.txt
           gh release create "$tag" \
-            dist/CALIBRE-debug.apk \
-            dist/SHA256SUMS.txt \
+            release-assets/CALIBRE-debug.apk \
+            release-assets/CALIBRE-PC.exe \
+            release-assets/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --prerelease \
-            --title "КАЛИБР — тестовый APK этапа 3 (сборка ${GITHUB_RUN_NUMBER})" \
-            --notes "Отладочная тестовая сборка для проверки пользователем. Не является публикационным релизом. Демо-карточки помечены ДЕМО; не использовать их для настройки техники."
+            --title "КАЛИБР — тестовые файлы этапа 3 (сборка ${GITHUB_RUN_NUMBER})" \
+            --notes "Тестовые файлы: автономный EXE для Windows открывает браузерный предпросмотр и APK для Android. Релиз не предназначен для публикации. Карточки ДЕМО не использовать для настройки техники."

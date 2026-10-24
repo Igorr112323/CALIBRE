@@ -2,8 +2,9 @@ import { Capacitor } from '@capacitor/core';
 
 const isNative = Capacitor.isNativePlatform();
 const API_PREFIX = '/api/mobile';
+const BROWSER_ORIGIN = window.location.protocol.startsWith('http') ? window.location.origin : '';
 const DEFAULT_STATE = {
-  serverUrl: isNative ? '' : 'http://127.0.0.1:8765',
+  serverUrl: isNative ? '' : BROWSER_ORIGIN,
   catalog: { schema_version: 1, real_machines: [], demo_machines: [] },
   revision: null,
   lastSync: null,
@@ -128,6 +129,9 @@ function mergeSavedState(saved) {
   appState.lastSync = typeof saved.lastSync === 'string' ? saved.lastSync : null;
   appState.feedbackQueue = asArray(saved.feedbackQueue);
   appState.questionQueue = asArray(saved.questionQueue);
+  if (!isNative && window.location.pathname.startsWith('/preview')) {
+    appState.serverUrl = window.location.origin;
+  }
 }
 
 async function persist() {

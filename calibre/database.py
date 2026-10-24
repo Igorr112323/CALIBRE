@@ -1,6 +1,7 @@
 """SQLite setup and safely separated, unmistakably-labelled demonstration records."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from alembic import command as alembic_command
@@ -12,7 +13,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from calibre.demo import seed_demo_data
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATABASE = PROJECT_ROOT / "data" / "calibre.sqlite3"
+DATA_ROOT = Path(os.environ.get("CALIBRE_DATA_DIR", PROJECT_ROOT / "data"))
+DEFAULT_DATABASE = DATA_ROOT / "calibre.sqlite3"
 
 
 def make_engine(database_url: str | None = None) -> Engine:

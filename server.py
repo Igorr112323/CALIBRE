@@ -23,6 +23,7 @@ from calibre.models import Adjustment, ExpertQuestion, Feedback, Machine, Node, 
 
 ROOT = Path(__file__).resolve().parent
 WEB_ROOT = ROOT / "web"
+PREVIEW_ROOT = ROOT / "mobile" / "www"
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("CALIBRE_PORT", "8765"))
 
@@ -76,7 +77,7 @@ def local_lan_ip() -> str:
     return "IP-АДРЕС НЕ НАЙДЕН"
 
 
-def create_app(database_url: str | None = None, include_demo: bool = True) -> FastAPI:
+def create_app(database_url: str | None = None, include_demo: bool = True, enable_preview: bool = True) -> FastAPI:
     engine = make_engine(database_url)
     sessions = initialize_database(engine, include_demo=include_demo)
     app = FastAPI(title="КАЛИБР", docs_url=None, redoc_url=None, openapi_url=None)
@@ -87,10 +88,13 @@ def create_app(database_url: str | None = None, include_demo: bool = True) -> Fa
     async def local_admin_and_write_guard(request, call_next):
         path = request.url.path
         remote = not is_loopback(request.client.host if request.client else None)
-        if remote and (path == "/admin" or path.startswith("/admin/")):
+        if remote and (
+            path == "/admin" or path.startswith("/admin/")
+            or path == "/preview" or path.startswith("/preview/")
+        ):
             return JSONResponse(status_code=403, content={
                 "ok": False,
-                "message": "Админка доступна только на компьютере-сервере",
+                "message": "Админка и предпросмотр доступны только на компьютере-сервере",
             })
         phone_submission = request.method == "POST" and path in {
             "/api/mobile/feedback", "/api/mobile/questions"
@@ -194,6 +198,9 @@ def create_app(database_url: str | None = None, include_demo: bool = True) -> Fa
         })
 
     app.mount("/admin/static", StaticFiles(directory=str(WEB_ROOT)), name="admin-static")
+    # Собранный в EXE предпросмотр доступен только с loopback (см. middleware выше).
+    if enable_preview and PREVIEW_ROOT.is_dir():
+        app.mount("/preview", StaticFiles(directory=str(PREVIEW_ROOT), html=True), name="desktop-preview")
     return app
 
 

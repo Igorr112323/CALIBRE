@@ -8,7 +8,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from calibre.models import Adjustment, ExpertQuestion, Feedback, Machine, Node, Norm, SourceDocument
-from server import create_app, is_loopback
+from server import PREVIEW_ROOT, create_app, is_loopback
 
 
 class ServerStageTwoTests(unittest.IsolatedAsyncioTestCase):
@@ -52,6 +52,27 @@ class ServerStageTwoTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Админка проекта", response.text)
         self.assertEqual((await self.client.get("/admin/static/shared.css")).status_code, 200)
+
+    async def test_phone_listener_variant_does_not_mount_browser_preview(self):
+        if not PREVIEW_ROOT.is_dir():
+            self.skipTest("Мобильные ресурсы ещё не собраны Vite")
+        db_path = Path(self.temp_dir.name) / "phone-listener.sqlite3"
+        phone_app = create_app(f"sqlite:///{db_path.as_posix()}", include_demo=False, enable_preview=False)
+        transport = httpx.ASGITransport(app=phone_app, client=("127.0.0.1", 50002))
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as phone_client:
+            self.assertEqual((await phone_client.get("/api/mobile/ping")).status_code, 200)
+            self.assertEqual((await phone_client.get("/preview/")).status_code, 404)
+        phone_app.state.engine.dispose()
+
+    async def test_built_browser_preview_is_served_locally_but_denied_over_lan(self):
+        if not PREVIEW_ROOT.is_dir():
+            self.skipTest("Мобильные ресурсы ещё не собраны Vite")
+        local = await self.client.get("/preview/")
+        self.assertEqual(local.status_code, 200)
+        self.assertIn("./assets/", local.text)
+        async with self.network_client() as network:
+            self.assertEqual((await network.get("/preview/")).status_code, 403)
+            self.assertEqual((await network.get("/preview/assets/missing.js")).status_code, 403)
 
     async def test_local_pdfjs_viewer_and_vendor_are_served_without_cdn(self):
         viewer = await self.client.get("/admin/static/admin/pdf-viewer.html")

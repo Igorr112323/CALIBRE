@@ -28,6 +28,19 @@ class MobileAppStageThreeTests(unittest.TestCase):
         self.assertNotIn("host: '0.0.0.0'", config)
         self.assertIn("http://127.0.0.1:5173", batch)
 
+    def test_windows_launcher_is_onefile_with_loopback_preview_and_auto_opens_browser(self):
+        launcher = (ROOT / "desktop_launcher.py").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/build-android.yml").read_text(encoding="utf-8")
+        self.assertIn("webbrowser.open(url", launcher)
+        self.assertIn('host="127.0.0.1"', launcher)
+        self.assertIn('host="0.0.0.0"', launcher)
+        self.assertIn("create_app(enable_preview=False)", launcher)
+        self.assertIn("LOCALAPPDATA", launcher)
+        self.assertIn("--onefile", workflow)
+        self.assertIn("CALIBRE-PC.exe", workflow)
+        self.assertIn("--self-test", workflow)
+        self.assertIn("--self-test", launcher)
+
     def test_android_allows_local_http_and_one_command_apk_output_is_configured(self):
         manifest = (ROOT / "mobile/android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
         batch = (ROOT / "build_apk.bat").read_text(encoding="utf-8")

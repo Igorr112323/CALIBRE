@@ -17,5 +17,7 @@ mobile/android/app/build/
 mobile/android/app/src/main/assets/public/
 
 dist/
+/build/
+/*.spec
 
 web/app/.vite/
