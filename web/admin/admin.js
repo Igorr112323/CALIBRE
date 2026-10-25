@@ -1,6 +1,6 @@
 (() => {
   const $ = (selector) => document.querySelector(selector);
-  const state = { machines: [], machineId: null, newFlow: false, nodes: [], documents: [], photos: [], analysisRuns: [], analysisRun: null, activeClaimIndex: null, ollamaStatus: null };
+  const state = { screen: 'home', returnScreen: null, returnMachineId: null, machines: [], machineId: null, newFlow: false, nodes: [], documents: [], photos: [], analysisRuns: [], analysisRun: null, activeClaimIndex: null, ollamaStatus: null };
   const setupForm = $('#setup-form');
   const modelField = setupForm.elements.model;
   const fileInput = $('#manual-file');
@@ -55,10 +55,26 @@
     while (state.machines.some((machine) => machine.code.toLowerCase() === code.toLowerCase())) code = `KOLIBRI-${suffix}-${index++}`;
     return code;
   }
+  function adminTractorIllustration() {
+    return `<svg class="tractor-art" viewBox="0 0 220 150" aria-hidden="true"><ellipse cx="128" cy="137" rx="91" ry="7" fill="#bdc9b8" opacity=".7"/><path d="M91 21q1-7 9-7h31q8 0 10 8l8 43h53q9 0 9 9v17q0 9-9 9h-70l-9-30H91z" fill="#3d7435"/><path d="M101 27h25l6 29H96z" fill="#f2f4eb"/><path d="M151 66h48q9 0 9 9v7h-57z" fill="#3d7435"/><rect x="177" y="39" width="7" height="28" rx="3.5" fill="#18251b"/><circle cx="94" cy="102" r="34" fill="#172019"/><circle cx="94" cy="102" r="15" fill="#f4f6ed"/><circle cx="94" cy="102" r="6" fill="#294b2b"/><circle cx="199" cy="111" r="22" fill="#172019"/><circle cx="199" cy="111" r="9" fill="#f4f6ed"/></svg>`;
+  }
+  function renderHomeMachineList() {
+    const list = $('#admin-machine-list');
+    if (!list) return;
+    list.innerHTML = state.machines.length ? state.machines.map((machine, index) => `
+      <button class="admin-machine-card card-tone-${index % 2}" type="button" data-open-machine="${machine.id}">
+        <h3>${escapeHtml(machine.model || 'Машина')}</h3>
+        <p>${escapeHtml(machine.manufacturer || '')}${machine.manufacturer && machine.machine_type ? ' · ' : ''}${escapeHtml(machine.machine_type || 'Сельхозтехника')}</p>
+        <span class="machine-open" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>
+        ${adminTractorIllustration()}
+      </button>`).join('') : '<div class="admin-empty">Пока нет карточек техники.<br>Создайте первую карточку кнопкой выше.</div>';
+  }
   function renderMachinePicker() {
+    const wrap = $('#machine-picker-wrap');
     const select = $('#machine-select');
     const label = $('#machine-select-label');
     const hasMachines = state.machines.length > 0;
+    wrap.hidden = state.screen === 'home' || state.newFlow || !hasMachines;
     select.hidden = !hasMachines;
     label.hidden = !hasMachines;
     select.innerHTML = state.machines.map((machine) => `<option value="${machine.id}">${escapeHtml(machine.manufacturer)} ${escapeHtml(machine.model)}</option>`).join('');
@@ -67,6 +83,14 @@
   function render() {
     const machine = selectedMachine();
     const hasMachine = Boolean(machine);
+    const onHome = state.screen === 'home';
+    $('#admin-home').hidden = !onHome;
+    $('#admin-workspace').hidden = onHome;
+    $('#back-to-admin-home').hidden = onHome;
+    $('.page').classList.toggle('admin-home-visible', onHome);
+    $('#admin-footer').hidden = onHome;
+    $('.local-pill').hidden = onHome;
+    renderHomeMachineList();
     $('#machine-create-panel').hidden = !state.newFlow;
     $('#wizard-panel').hidden = hasMachine || state.newFlow;
     $('#machine-panel').hidden = !hasMachine || state.newFlow;
@@ -317,8 +341,10 @@
   fileInput.addEventListener('change', () => {
     $('#manual-file-name').textContent = fileInput.files[0]?.name || 'Выберите руководство';
   });
-  $('#new-machine').addEventListener('click', () => {
+  function startMachineCreate() {
+    state.returnScreen = state.screen;
     state.returnMachineId = state.machineId;
+    state.screen = 'workspace';
     state.machineId = null;
     state.newFlow = true;
     $('#machine-create-form').reset();
@@ -326,12 +352,32 @@
     $('#machine-create-form [name="machine_type"]').value = 'Сельскохозяйственная техника';
     setStatus('#machine-create-status', '');
     render(); window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  $('#new-machine').addEventListener('click', startMachineCreate);
+  $('#home-create-machine').addEventListener('click', startMachineCreate);
+  $('#admin-machine-list').addEventListener('click', async (event) => {
+    const card = event.target.closest('[data-open-machine]');
+    if (!card) return;
+    state.screen = 'workspace';
+    state.newFlow = false;
+    state.machineId = Number(card.dataset.openMachine) || null;
+    try { await loadMachineData(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    catch (error) { setStatus('#setup-status', error.message, 'bad'); }
+  });
+  $('#back-to-admin-home').addEventListener('click', () => {
+    state.screen = 'home';
+    state.newFlow = false;
+    state.returnMachineId = null;
+    state.returnScreen = null;
+    render(); window.scrollTo({ top: 0, behavior: 'smooth' });
   });
   $('#cancel-machine-create').addEventListener('click', async () => {
     state.newFlow = false;
+    state.screen = state.returnScreen || 'home';
     state.machineId = state.returnMachineId || null;
     state.returnMachineId = null;
-    if (state.machineId) await loadMachineData();
+    state.returnScreen = null;
+    if (state.screen === 'workspace' && state.machineId) await loadMachineData();
     else render();
   });
   $('#machine-create-form').addEventListener('submit', async (event) => {
@@ -346,13 +392,16 @@
         body: JSON.stringify({ ...data, code: machineCode(data.model) }),
       });
       state.newFlow = false;
+      state.screen = 'workspace';
       state.returnMachineId = null;
+      state.returnScreen = null;
       await loadMachines(machine.id);
       setStatus('#card-status', `Машина создана. Теперь можно добавить руководство, узлы и фотографии.`, 'good');
     } catch (error) { setStatus('#machine-create-status', error.message, 'bad'); }
     finally { setBusy(button, false); }
   });
   $('#machine-select').addEventListener('change', async (event) => {
+    state.screen = 'workspace';
     state.machineId = Number(event.target.value) || null; state.newFlow = false;
     try { await loadMachineData(); } catch (error) { setStatus('#setup-status', error.message, 'bad'); }
   });

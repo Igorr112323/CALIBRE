@@ -11,9 +11,10 @@
   <header class="topbar">
     <a class="brand" href="/admin" aria-label="Kolibri">
       <img src="/admin/static/admin/kolibri-mark.png" alt="">
-      <span><strong>Kolibri</strong><small>ТЕХНИЧЕСКАЯ БАЗА</small></span>
+      <span><strong>Kolibri</strong><small>Справочник сельхозтехники</small></span>
     </a>
-    <div class="machine-picker" id="machine-picker-wrap">
+    <button class="button button-soft admin-home-back" id="back-to-admin-home" type="button" hidden>‹ Каталог техники</button>
+    <div class="machine-picker" id="machine-picker-wrap" hidden>
       <label for="machine-select" id="machine-select-label">Техника</label>
       <select id="machine-select" aria-label="Выбранная техника"></select>
       <button class="button button-soft" id="new-machine" type="button">＋ Добавить машину</button>
@@ -22,6 +23,13 @@
   </header>
 
   <main class="page">
+    <section class="admin-home" id="admin-home">
+      <button class="home-create-button" id="home-create-machine" type="button"><span aria-hidden="true">＋</span> Создать новую карточку</button>
+      <h2 class="catalog-heading">Техника</h2>
+      <div class="admin-machine-list" id="admin-machine-list"><p class="catalog-empty">Загружаем карточки техники…</p></div>
+    </section>
+
+    <div id="admin-workspace" hidden>
     <section class="intro">
       <p class="eyebrow">ПРОСТОЙ СЦЕНАРИЙ ДЛЯ ВАШЕЙ ТЕХНИКИ</p>
       <h1 id="page-heading">Соберём базу Kolibri вместе</h1>
@@ -152,7 +160,8 @@
       </div>
     </section>
 
-    <footer class="footer-note">Kolibri · локальная база техники. PDF-источники и фотографии доступны только на компьютере-сервере.</footer>
+    </div>
+    <footer class="footer-note" id="admin-footer">Kolibri · локальная база техники. PDF-источники и фотографии доступны только на компьютере-сервере.</footer>
   </main>
   <script src="/admin/static/admin/admin.js" defer></script>
 </body>
