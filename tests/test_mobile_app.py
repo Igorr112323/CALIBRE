@@ -86,7 +86,9 @@ class MobileAppStageThreeTests(unittest.TestCase):
     def test_windows_launcher_is_pc_admin_and_phone_lan_server(self):
         launcher = (ROOT / "desktop_launcher.py").read_text(encoding="utf-8")
         workflow = (ROOT / ".github/workflows/build-android.yml").read_text(encoding="utf-8")
-        self.assertIn("webbrowser.open(url", launcher)
+        self.assertIn("webview.create_window", launcher)
+        self.assertNotIn("webbrowser.open", launcher)
+        self.assertIn("Готовим вашу мастерскую", launcher)
         self.assertIn('host="127.0.0.1"', launcher)
         self.assertIn('host="0.0.0.0"', launcher)
         self.assertIn("phone_app = server_module.create_app(recover_analysis=False)", launcher)

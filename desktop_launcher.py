@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import socket
 import sys
@@ -10,7 +11,6 @@ import time
 import traceback
 import urllib.error
 import urllib.request
-import webbrowser
 from pathlib import Path
 
 
@@ -70,16 +70,14 @@ def run_self_test() -> None:
                     or "manual-upload-form" not in admin_js
                     or "/api/admin/nodes" not in admin_js
                     or "/api/admin/media" not in admin_js
-                    or "/api/admin/assistant/answer" not in admin_js
-                    or "/api/admin/analysis" not in admin_js
-                    or "/api/admin/ollama" not in admin_js):
-                raise RuntimeError("Windows EXE self-test: карточки машин, материалы или локальный AI не загрузились")
+                    or "/api/admin/assistant/answer" not in admin_js):
+                raise RuntimeError("Windows EXE self-test: карточки машин и материалы не загрузились")
         if "Добавить машину" not in admin_html:
             raise RuntimeError("Windows EXE self-test: форма создания машины не загрузилась")
-        if "Проверить неисправность по руководству" not in admin_html:
-            raise RuntimeError("Windows EXE self-test: форма диагностики неисправностей не загрузилась")
-        if "Задать вопрос по руководству — Ollama локально" not in admin_html:
-            raise RuntimeError("Windows EXE self-test: локальная форма вопросов по документу не загрузилась")
+        if "Ollama" in admin_html or "local-ai-panel" in admin_html:
+            raise RuntimeError("Windows EXE self-test: техническая панель локальной модели не должна отображаться")
+        if "new-machine-photo-previews" not in admin_html or "manual-question-form" not in admin_html:
+            raise RuntimeError("Windows EXE self-test: форма карточки или вопроса по руководству не загрузилась")
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/admin/static/admin/kolibri-mark.png", timeout=10) as response:
             if response.status != 200 or not response.headers.get("Content-Type", "").startswith("image/png"):
                 raise RuntimeError("Windows EXE self-test: логотип Kolibri не загрузился")
@@ -110,58 +108,59 @@ def main() -> None:
             log_path.write_text(traceback.format_exc(), encoding="utf-8")
             raise
         return
+
     import tkinter as tk
-    from tkinter import messagebox
+    from tkinter import messagebox, ttk
 
     root = tk.Tk()
-    root.title("Kolibri — экспертный помощник для ПК")
-    root.geometry("470x320")
+    root.title("Kolibri")
+    root.geometry("470x340")
     root.resizable(False, False)
-    root.configure(bg="#eef2ef")
+    root.configure(bg="#f7f8f1")
+    root.update_idletasks()
+    x = (root.winfo_screenwidth() - 470) // 2
+    y = (root.winfo_screenheight() - 340) // 2
+    root.geometry(f"470x340+{x}+{y}")
 
-    state: dict[str, object] = {"servers": [], "threads": [], "error": None, "ready": False, "admin_url": "", "phone_url": ""}
-    tk.Label(root, text="Kolibri", font=("Segoe UI", 17, "bold"), fg="white", bg="#2e7d32", pady=11).pack(fill="x")
-    status = tk.Label(root, text="Готовим страницу и локальную базу…", font=("Segoe UI", 11), bg="#eef2ef", fg="#1b1f1d", wraplength=440)
-    status.pack(pady=(13, 5))
+    state: dict[str, object] = {"servers": [], "threads": [], "error": None,
+                                "ready": False, "admin_url": "", "phone_url": ""}
+    canvas = tk.Canvas(root, width=470, height=190, bg="#f7f8f1", highlightthickness=0)
+    canvas.pack(pady=(18, 0))
+    canvas.create_oval(190, 24, 280, 114, fill="#326c38", outline="")
+    canvas.create_text(235, 69, text="K", fill="white", font=("Segoe UI", 35, "bold"))
+    dots = [canvas.create_oval(0, 0, 0, 0, fill="#7ca878", outline="") for _ in range(8)]
+    title = tk.Label(root, text="Kolibri", font=("Segoe UI", 22, "bold"),
+                     fg="#20271f", bg="#f7f8f1")
+    title.pack(pady=(0, 3))
+    status = tk.Label(root, text="Готовим вашу мастерскую…", font=("Segoe UI", 11),
+                      fg="#687167", bg="#f7f8f1")
+    status.pack(pady=(0, 13))
+    progress_style = ttk.Style(root)
+    progress_style.theme_use("clam")
+    progress_style.configure("Kolibri.Horizontal.TProgressbar", troughcolor="#e4e9df",
+                              background="#4b8a50", bordercolor="#f7f8f1", lightcolor="#4b8a50",
+                              darkcolor="#4b8a50")
+    progress = ttk.Progressbar(root, mode="indeterminate", length=240,
+                               style="Kolibri.Horizontal.TProgressbar")
+    progress.pack()
+    progress.start(12)
 
-    tk.Label(root, text="Админ-панель Kolibri на этом компьютере", font=("Segoe UI", 9, "bold"), fg="#5f6b64", bg="#eef2ef").pack()
-    page_address = tk.StringVar(value="Запуск…")
-    tk.Label(root, textvariable=page_address, font=("Segoe UI", 10, "underline"), fg="#2e7d32", bg="#eef2ef").pack(pady=(1, 6))
+    animation = {"angle": 0}
+    def animate() -> None:
+        animation["angle"] = (animation["angle"] + 0.16) % (2 * 3.14159)
+        for index, item in enumerate(dots):
+            angle = animation["angle"] + index * (2 * 3.14159 / len(dots))
+            radius = 64
+            cx = 235 + radius * math.cos(angle)
+            cy = 69 + radius * math.sin(angle)
+            size = 4 + (index % 3)
+            shade = ("#326c38", "#4b8a50", "#9ab991")[index % 3]
+            canvas.coords(item, cx - size, cy - size, cx + size, cy + size)
+            canvas.itemconfigure(item, fill=shade)
+        if root.winfo_exists():
+            root.after(45, animate)
 
-    tk.Label(root, text="Адрес API для приложения на телефоне (та же Wi-Fi-сеть)", font=("Segoe UI", 9, "bold"), fg="#5f6b64", bg="#eef2ef").pack()
-    phone_address = tk.StringVar(value="Определяем адрес компьютера…")
-    tk.Label(root, textvariable=phone_address, font=("Segoe UI", 10), fg="#1b1f1d", bg="#eef2ef").pack(pady=(1, 6))
-
-    help_text = tk.Label(root, text="На ПК открывается только админка; мобильное приложение работает на телефоне.\nДля связи телефона с сервером разрешите частную сеть в Windows Firewall.\nЗакройте это окно, чтобы остановить Kolibri.", font=("Segoe UI", 8), fg="#5f6b64", bg="#eef2ef", justify="center")
-    help_text.pack(pady=(0, 7))
-
-    buttons = tk.Frame(root, bg="#eef2ef")
-    buttons.pack(pady=2)
-
-    def open_page() -> None:
-        url = str(state.get("admin_url") or "")
-        if url:
-            webbrowser.open(url, new=2, autoraise=True)
-
-    def copy_phone_address() -> None:
-        value = str(state.get("phone_url") or "")
-        if value and "НЕ НАЙДЕН" not in value:
-            root.clipboard_clear()
-            root.clipboard_append(value)
-            status.configure(text="Адрес телефона скопирован.", fg="#2e7d32")
-
-    open_button = tk.Button(buttons, text="Открыть админку", command=open_page, state="disabled", width=17, bg="#2e7d32", fg="white", relief="flat", padx=5, pady=5)
-    open_button.pack(side="left", padx=4)
-    copy_button = tk.Button(buttons, text="Копировать адрес телефона", command=copy_phone_address, state="disabled", width=24, padx=5, pady=5)
-    copy_button.pack(side="left", padx=4)
-
-    def stop_and_close() -> None:
-        for server in state.get("servers", []):
-            server.should_exit = True
-        root.destroy()
-
-    tk.Button(buttons, text="Закрыть", command=stop_and_close, width=9, padx=5, pady=5).pack(side="left", padx=4)
-    root.protocol("WM_DELETE_WINDOW", stop_and_close)
+    animate()
 
     def start_servers() -> None:
         try:
@@ -173,13 +172,11 @@ def main() -> None:
             ]
             missing = [str(path) for path in required if not path.is_file()]
             if missing:
-                raise FileNotFoundError("В приложении отсутствуют встроенные ресурсы:\n" + "\n".join(missing))
+                raise FileNotFoundError("В Kolibri отсутствуют необходимые ресурсы")
 
             import uvicorn
             import server as server_module
 
-            # Separate listeners: the PC admin binds only to loopback; the phone
-            # listener exposes only the mobile API. The phone UI is inside the APK.
             local_app = server_module.app
             phone_app = server_module.create_app(recover_analysis=False)
             local_port = free_port("127.0.0.1")
@@ -197,55 +194,73 @@ def main() -> None:
                 log_level="critical", access_log=False, log_config=None,
             ))
             servers = [local_server, phone_server]
-            threads = [
-                threading.Thread(target=instance.run, name=f"calibre-server-{index}", daemon=True)
-                for index, instance in enumerate(servers)
-            ]
+            threads = [threading.Thread(target=instance.run, name=f"kolibri-server-{index}", daemon=True)
+                       for index, instance in enumerate(servers)]
             state["servers"] = servers
             state["threads"] = threads
             state["admin_url"] = f"http://127.0.0.1:{local_port}/admin"
-            ip_address = server_module.local_lan_ip()
-            state["phone_url"] = f"http://{ip_address}:{phone_port}"
+            state["phone_url"] = f"http://{server_module.local_lan_ip()}:{phone_port}"
             for thread in threads:
                 thread.start()
-
             deadline = time.monotonic() + 25
             while time.monotonic() < deadline:
                 if all(instance.started for instance in servers):
                     state["ready"] = True
                     return
                 if not all(thread.is_alive() for thread in threads):
-                    raise RuntimeError("Один из локальных серверов завершился до открытия страницы.")
+                    raise RuntimeError("Локальный сервис не запустился")
                 time.sleep(0.1)
-            raise TimeoutError("Серверы Kolibri не успели запуститься.")
+            raise TimeoutError("Превышено время запуска Kolibri")
         except Exception:
             state["error"] = traceback.format_exc()
 
-    def poll_startup() -> None:
+    threading.Thread(target=start_servers, name="kolibri-startup", daemon=True).start()
+
+    def finish_startup() -> None:
         if state.get("ready"):
-            page_address.set(str(state["admin_url"]))
-            phone_address.set(str(state["phone_url"]))
-            open_button.configure(state="normal")
-            if "НЕ НАЙДЕН" not in str(state["phone_url"]):
-                copy_button.configure(state="normal")
-            status.configure(text="Готово. Админка откроется в браузере; мобильное приложение используйте на телефоне.", fg="#2e7d32")
-            try:
-                opened = webbrowser.open(str(state["admin_url"]), new=2, autoraise=True)
-                if not opened:
-                    status.configure(text="Нажмите «Открыть админку», чтобы открыть страницу на ПК.", fg="#765500")
-            except Exception:
-                status.configure(text="Нажмите «Открыть админку», чтобы открыть страницу на ПК.", fg="#765500")
+            status.configure(text="Всё готово", fg="#326c38")
+            progress.stop()
+            root.after(350, root.destroy)
             return
         if state.get("error"):
-            status.configure(text="Не удалось запустить Kolibri.", fg="#a22121")
-            messagebox.showerror("Kolibri", str(state["error"]))
-            stop_and_close()
+            progress.stop()
+            status.configure(text="Не удалось запустить Kolibri", fg="#a2402f")
+            messagebox.showerror("Kolibri", "Не удалось открыть приложение. Перезапустите EXE или обратитесь в поддержку.")
+            root.destroy()
             return
-        root.after(100, poll_startup)
+        root.after(100, finish_startup)
 
-    threading.Thread(target=start_servers, name="calibre-startup", daemon=True).start()
-    root.after(100, poll_startup)
+    root.after(100, finish_startup)
     root.mainloop()
+    if not state.get("ready"):
+        return
+
+    def stop_servers(*_args) -> None:
+        for server in state.get("servers", []):
+            server.should_exit = True
+
+    try:
+        import webview
+        window = webview.create_window(
+            "Kolibri — справочник сельхозтехники", str(state["admin_url"]),
+            width=520, height=860, min_size=(420, 640), background_color="#f7f8f1",
+        )
+        window.events.closed += stop_servers
+        webview.start(gui="edgechromium", debug=False)
+    except Exception:
+        stop_servers()
+        error_root = tk.Tk()
+        error_root.withdraw()
+        messagebox.showerror(
+            "Kolibri",
+            "Не удалось открыть окно приложения. Проверьте, что в Windows установлен Microsoft Edge WebView2 Runtime.",
+            parent=error_root,
+        )
+        error_root.destroy()
+    finally:
+        stop_servers()
+        for thread in state.get("threads", []):
+            thread.join(timeout=3)
 
 
 if __name__ == "__main__":

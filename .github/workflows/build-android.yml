@@ -117,6 +117,10 @@ jobs:
             --collect-all rapidfuzz `
             --collect-all PIL `
             --collect-all httpx `
+            --collect-all webview `
+            --collect-all pythonnet `
+            --collect-all clr_loader `
+            --hidden-import webview.platforms.edgechromium `
             --hidden-import sqlalchemy.dialects.sqlite `
             desktop_launcher.py
           if (-not (Test-Path "dist/Kolibri-GRN-471-demo-selftest.exe")) { throw "Не создан диагностический EXE" }
@@ -147,6 +151,10 @@ jobs:
             --collect-all rapidfuzz `
             --collect-all PIL `
             --collect-all httpx `
+            --collect-all webview `
+            --collect-all pythonnet `
+            --collect-all clr_loader `
+            --hidden-import webview.platforms.edgechromium `
             --hidden-import sqlalchemy.dialects.sqlite `
             desktop_launcher.py
           if (-not (Test-Path "dist/Kolibri-GRN-471-demo.exe")) { throw "Не создан dist/Kolibri-GRN-471-demo.exe" }
