@@ -4,7 +4,7 @@
 
 ## Сборка и установка
 
-Готовые файлы после успешного GitHub Actions workflow публикуются в релизе проекта. Имена сборок: `Kolibri-GRN-471-demo.apk` и `Kolibri-GRN-471-demo.exe`. Это отладочный тестовый APK, а не подписанная коммерческая сборка; Android может попросить разрешить установку из выбранного источника. Windows EXE может показать предупреждение SmartScreen, поскольку не подписан коммерческим сертификатом.
+Готовые файлы опубликованы в [релизе `stage4-6-grn471-demo-20`](https://github.com/Igorr112323/CALIBRE/releases/tag/stage4-6-grn471-demo-20): [APK](https://github.com/Igorr112323/CALIBRE/releases/download/stage4-6-grn471-demo-20/Kolibri-GRN-471-demo.apk) и [Windows EXE](https://github.com/Igorr112323/CALIBRE/releases/download/stage4-6-grn471-demo-20/Kolibri-GRN-471-demo.exe). Это отладочный тестовый APK, а не подписанная коммерческая сборка; Android может попросить разрешить установку из выбранного источника. Windows EXE может показать предупреждение SmartScreen, поскольку не подписан коммерческим сертификатом.
 
 Для локальной сборки APK в Windows нужны Node.js 22 LTS, Android Studio/SDK и JDK 21. Запустите `build_apk.bat`; результат: `dist\Kolibri-GRN-471-demo.apk`. Скрипт выполняет `npm ci`, Vite build, Capacitor sync и `assembleDebug`.
 

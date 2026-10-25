@@ -20,7 +20,7 @@ APK включает подготовленный текстовый демо-к
 
 ## Файлы и сборки
 
-Workflow `.github/workflows/build-android.yml` вручную собирает APK и Windows EXE, выполняет Windows self-test и формирует prerelease с прямыми ссылками и `SHA256SUMS.txt`. Для локальной сборки APK используйте инструкцию [`mobile/README.md`](mobile/README.md). Windows-зависимости перечислены в `requirements-desktop.txt`; PyInstaller собирает EXE вместе с приложением и локальными Python-компонентами.
+Workflow `.github/workflows/build-android.yml` собирает APK и Windows EXE, выполняет Windows self-test и формирует prerelease с прямыми ссылками и `SHA256SUMS.txt`. Успешная сборка этого среза опубликована под тегом [`stage4-6-grn471-demo-20`](https://github.com/Igorr112323/CALIBRE/releases/tag/stage4-6-grn471-demo-20): [Android APK](https://github.com/Igorr112323/CALIBRE/releases/download/stage4-6-grn471-demo-20/Kolibri-GRN-471-demo.apk), [Windows EXE](https://github.com/Igorr112323/CALIBRE/releases/download/stage4-6-grn471-demo-20/Kolibri-GRN-471-demo.exe), [SHA256SUMS](https://github.com/Igorr112323/CALIBRE/releases/download/stage4-6-grn471-demo-20/SHA256SUMS.txt). Для локальной сборки APK используйте инструкцию [`mobile/README.md`](mobile/README.md). Windows-зависимости перечислены в `requirements-desktop.txt`; PyInstaller собирает EXE вместе с приложением и локальными Python-компонентами.
 
 Исходный PDF, извлечённые фигуры/кропы, локальная база и gold-эталон не входят в Git или релиз. Пользователь загружает свой PDF только после запуска EXE.
 
