@@ -58,6 +58,19 @@ class MachineCreate(BaseModel):
     description: str = Field(default="", max_length=4000)
 
 
+class MachineUpdate(BaseModel):
+    manufacturer: str = Field(min_length=1, max_length=160)
+    model: str = Field(min_length=1, max_length=160)
+    machine_type: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=4000)
+
+
+class NodeCreate(BaseModel):
+    machine_id: int = Field(gt=0)
+    title: str = Field(min_length=1, max_length=240)
+    purpose: str = Field(default="", max_length=4000)
+
+
 class AssistantRequest(BaseModel):
     machine_id: int = Field(gt=0)
     question: str = Field(min_length=1, max_length=2000)
@@ -243,6 +256,46 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
                 raise HTTPException(status_code=409, detail="Техника с таким кодом уже есть")
             return {"id": machine.id, "code": machine.code, "manufacturer": machine.manufacturer,
                     "model": machine.model, "machine_type": machine.machine_type, "status": machine.status}
+
+    @app.put("/api/admin/machines/{machine_id}")
+    async def admin_update_machine(machine_id: int, body: MachineUpdate):
+        with Session(app.state.engine) as session:
+            machine = session.get(Machine, machine_id)
+            if machine is None or machine.is_demo or machine.status == "archived":
+                raise HTTPException(status_code=404, detail="Рабочая техника не найдена")
+            machine.manufacturer = body.manufacturer.strip()
+            machine.model = body.model.strip()
+            machine.machine_type = body.machine_type.strip()
+            machine.description = body.description.strip()
+            session.commit()
+            return {"id": machine.id, "code": machine.code, "manufacturer": machine.manufacturer,
+                    "model": machine.model, "machine_type": machine.machine_type,
+                    "description": machine.description, "status": machine.status}
+
+    @app.get("/api/admin/nodes")
+    async def admin_nodes(machine_id: int = Query(gt=0)):
+        with Session(app.state.engine) as session:
+            machine = session.get(Machine, machine_id)
+            if machine is None or machine.is_demo:
+                raise HTTPException(status_code=404, detail="Рабочая техника не найдена")
+            nodes = session.scalars(select(Node).where(Node.machine_id == machine_id).order_by(Node.number)).all()
+            return [{"id": node.id, "number": node.number, "title": node.title,
+                     "purpose": node.purpose, "status": node.status} for node in nodes]
+
+    @app.post("/api/admin/nodes", status_code=201)
+    async def admin_create_node(body: NodeCreate):
+        with Session(app.state.engine) as session:
+            machine = session.get(Machine, body.machine_id)
+            if machine is None or machine.is_demo or machine.status == "archived":
+                raise HTTPException(status_code=404, detail="Рабочая техника не найдена")
+            max_number = session.scalar(select(Node.number).where(Node.machine_id == body.machine_id)
+                                        .order_by(Node.number.desc()).limit(1)) or 0
+            node = Node(machine_id=body.machine_id, number=max_number + 1,
+                        title=body.title.strip(), purpose=body.purpose.strip(), status="review")
+            session.add(node)
+            session.commit()
+            return {"id": node.id, "number": node.number, "title": node.title,
+                    "purpose": node.purpose, "status": node.status}
 
     @app.get("/api/admin/documents")
     async def admin_documents(machine_id: int | None = Query(default=None, gt=0)):
@@ -440,8 +493,9 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
             if machine_id is not None:
                 stmt = stmt.where(Photo.machine_id == machine_id)
             photos = session.scalars(stmt).all()
-            return [{"id": photo.id, "machine_id": photo.machine_id, "caption": photo.caption,
-                     "kind": photo.photo_kind, "filename": Path(photo.storage_path).name,
+            return [{"id": photo.id, "machine_id": photo.machine_id, "node_id": photo.node_id,
+                     "caption": photo.caption, "kind": photo.photo_kind,
+                     "filename": Path(photo.storage_path).name,
                      "url": f"/api/admin/media/{photo.id}/file"} for photo in photos]
 
     @app.post("/api/admin/media", status_code=201)
@@ -449,6 +503,7 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
         machine_id: int = Form(gt=0),
         file: UploadFile = File(...),
         caption: str = Form(default="", max_length=300),
+        node_id: int | None = Form(default=None, gt=0),
     ):
         staging_dir = app.state.data_root / "staging"
         staged, sha256, size = await stage_upload(file, staging_dir, MAX_IMAGE_BYTES)
@@ -471,13 +526,18 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
                 machine = session.get(Machine, machine_id)
                 if machine is None or machine.is_demo or machine.status == "archived":
                     raise HTTPException(status_code=404, detail="Рабочая техника не найдена")
+                if node_id is not None:
+                    node = session.get(Node, node_id)
+                    if node is None or node.machine_id != machine_id:
+                        raise HTTPException(status_code=422, detail="Выбранный узел не относится к этой технике")
                 duplicate = session.scalar(select(Photo).where(Photo.machine_id == machine_id,
                                                                Photo.storage_path == relative.as_posix()))
                 if duplicate:
                     raise HTTPException(status_code=409, detail="Это изображение уже загружено")
                 staged.replace(destination)
-                photo = Photo(machine_id=machine_id, storage_path=relative.as_posix(), caption=caption.strip(),
-                              photo_kind="candidate", usage_rights="internal_only", allow_training=False, published=False)
+                photo = Photo(machine_id=machine_id, node_id=node_id, storage_path=relative.as_posix(),
+                              caption=caption.strip(), photo_kind="node" if node_id else "candidate",
+                              usage_rights="internal_only", allow_training=False, published=False)
                 session.add(photo)
                 try:
                     session.commit()
@@ -485,8 +545,9 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
                     session.rollback()
                     destination.unlink(missing_ok=True)
                     raise HTTPException(status_code=409, detail="Изображение не удалось сохранить")
-                return {"id": photo.id, "machine_id": machine_id, "caption": photo.caption,
-                        "filename": destination.name, "bytes": size, "url": f"/api/admin/media/{photo.id}/file"}
+                return {"id": photo.id, "machine_id": machine_id, "node_id": photo.node_id,
+                        "caption": photo.caption, "filename": destination.name, "bytes": size,
+                        "url": f"/api/admin/media/{photo.id}/file"}
         except HTTPException:
             staged.unlink(missing_ok=True)
             raise

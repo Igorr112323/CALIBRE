@@ -1,388 +1,227 @@
-const $ = id => document.getElementById(id);
-const state = {machines: [], selectedMachine: Number(localStorage.getItem('kolibri-admin-machine') || 0), toastTimer: null};
-const statusText = {
-  answered: 'Ответ прошёл проверку цитат и чисел', part_lookup: 'Сверенный ответ по индексу каталога; модель не вызывалась', no_evidence: 'В источниках подтверждение не найдено',
-  not_configured: 'LLM не подключена; индекс и гипотезы доступны', remote_endpoint_requires_explicit_opt_in: 'Удалённая модель заблокирована без явного разрешения',
-  model_error: 'Модель не ответила корректно', invalid_model_output: 'Формат ответа модели отклонён',
-  uncited_answer_rejected: 'Ответ без проверяемой цитаты заблокирован', unsupported_numbers_rejected: 'Неподтверждённые числа заблокированы'
-};
+(() => {
+  const $ = (selector) => document.querySelector(selector);
+  const state = { machines: [], machineId: null, newFlow: false, nodes: [], documents: [], photos: [] };
+  const setupForm = $('#setup-form');
+  const modelField = setupForm.elements.model;
+  const fileInput = $('#manual-file');
 
-function toast(message, error = false) {
-  const element = $('toast');
-  element.textContent = message;
-  element.classList.toggle('error', error);
-  element.classList.add('show');
-  clearTimeout(state.toastTimer);
-  state.toastTimer = setTimeout(() => element.classList.remove('show'), 3300);
-}
-
-async function request(url, options = {}) {
-  const response = await fetch(url, {headers: options.body instanceof FormData ? undefined : {'Content-Type': 'application/json'}, ...options});
-  if (!response.ok) {
-    let detail = `Ошибка ${response.status}`;
-    try { const body = await response.json(); detail = body.detail || body.message || detail; } catch {}
-    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+  const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[char]);
+  const setStatus = (selector, message, kind = '') => {
+    const element = $(selector);
+    element.textContent = message;
+    element.className = `status${kind ? ` ${kind}` : ''}`;
+  };
+  async function request(url, options = {}) {
+    const response = await fetch(url, options);
+    let body = {};
+    try { body = await response.json(); } catch (_) { /* empty response */ }
+    if (!response.ok) throw new Error(body.detail || body.message || `Ошибка ${response.status}`);
+    return body;
   }
-  if (response.status === 204) return null;
-  return response.json();
-}
-
-function node(tag, className, text) {
-  const element = document.createElement(tag);
-  if (className) element.className = className;
-  if (text !== undefined) element.textContent = text;
-  return element;
-}
-
-function showView(name) {
-  document.querySelectorAll('.view').forEach(view => view.classList.toggle('active', view.id === `view-${name}`));
-  document.querySelectorAll('.nav-item').forEach(button => button.classList.toggle('active', button.dataset.view === name));
-  const titles = {overview: 'Рабочий стол', documents: 'Документы и фото', parts: 'Узлы и запчасти', assistant: 'Проверка ИИ'};
-  $('page-title').textContent = titles[name] || titles.overview;
-  if (name === 'documents') { loadDocuments(); loadImages(); }
-  if (name === 'parts') loadParts();
-}
-
-document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => showView(button.dataset.view)));
-document.querySelectorAll('[data-go]').forEach(button => button.addEventListener('click', () => showView(button.dataset.go)));
-
-function selectedMachine() {
-  const id = Number($('machine-select').value || state.selectedMachine || 0);
-  return state.machines.find(item => item.id === id) || null;
-}
-
-async function loadMachines() {
-  try {
-    state.machines = await request('/api/admin/machines');
-    const select = $('machine-select');
-    select.replaceChildren();
-    if (!state.machines.length) {
-      select.add(new Option('Сначала добавьте технику', ''));
-      state.selectedMachine = 0;
-      $('machine-cards').replaceChildren(node('div', 'empty-box', 'Пока нет добавленной техники. Создайте карточку Kolibri ГРН-471, затем загрузите руководство.'));
-      $('machine-form').closest('.machine-create').hidden = false;
-    } else {
-      state.machines.forEach(machine => select.add(new Option(`${machine.manufacturer} ${machine.model} · ${machine.code}`, String(machine.id))));
-      const stored = state.machines.find(machine => machine.id === state.selectedMachine);
-      state.selectedMachine = (stored || state.machines[0]).id;
-      select.value = String(state.selectedMachine);
-      localStorage.setItem('kolibri-admin-machine', String(state.selectedMachine));
-      $('machine-form').closest('.machine-create').hidden = true;
-      const cards = $('machine-cards');
-      cards.replaceChildren();
-      state.machines.forEach(machine => {
-        const row = node('article', 'machine-row');
-        row.append(node('span', 'machine-avatar', 'K'));
-        const info = node('div');
-        info.append(node('strong', '', `${machine.manufacturer} ${machine.model}`));
-        info.append(node('small', '', `${machine.machine_type} · ${machine.code}`));
-        row.append(info, node('span', 'machine-state', machine.has_documents ? 'Есть документы' : 'Нужен документ'));
-        cards.append(row);
-      });
-    }
-    $('machine-select').onchange = () => {
-      state.selectedMachine = Number(select.value || 0);
-      localStorage.setItem('kolibri-admin-machine', String(state.selectedMachine));
-      loadDocuments(); loadImages(); loadParts();
-    };
-    await Promise.all([loadStats(), loadDocuments(), loadImages(), loadParts()]);
-  } catch (error) {
-    toast(`Не удалось загрузить технику: ${error.message}`, true);
+  function selectedMachine() {
+    return state.machines.find((machine) => machine.id === Number(state.machineId));
   }
-}
-
-async function loadStats() {
-  try {
-    const data = await request('/api/admin/stats');
-    $('stat-machines').textContent = data.machines;
-    $('stat-documents').textContent = data.documents;
-    $('stat-pages').textContent = `${data.pages} страниц проиндексировано`;
-    $('stat-images').textContent = data.images;
-    const model = data.ai;
-    $('stat-ai').textContent = model.configured ? 'Подключена' : 'Не подключена';
-    $('stat-ai-detail').textContent = model.configured ? model.model : 'экспертный поиск готов · LLM не встроена';
-    const assistantStatus = $('assistant-status');
-    assistantStatus.textContent = model.configured ? `Внешняя/локальная LLM: ${model.model}` :
-      (model.remote_endpoint_blocked ? 'Подключение внешней LLM заблокировано' : 'Экспертный поиск Kolibri доступен · LLM не подключена');
-    assistantStatus.style.color = model.configured ? '#397a4f' : '#8b743b';
-    assistantStatus.style.background = model.configured ? '#edf6ef' : '#fff6df';
-  } catch (error) {
-    $('stat-ai').textContent = 'Недоступна';
-    $('stat-ai-detail').textContent = error.message;
-  }
-}
-
-function addDocRow(doc) {
-  const row = node('article', 'document-row');
-  row.append(node('span', 'doc-icon', 'PDF'));
-  const info = node('div');
-  info.append(node('strong', '', doc.title));
-  let details = `${doc.filename} · ${doc.page_count || '—'} стр.`;
-  const scope = doc.scope || {};
-  if (scope.guide_start_page && scope.guide_end_page) details += ` · руководство ${scope.guide_start_page}–${scope.guide_end_page}`;
-  if (scope.catalog_start_page && scope.catalog_end_page) details += ` · каталог ${scope.catalog_start_page}–${scope.catalog_end_page}`;
-  info.append(node('small', '', details));
-  row.append(info);
-  const actions = node('div', 'doc-actions');
-  const open = node('a', '', 'Открыть PDF');
-  open.href = doc.url;
-  open.target = '_blank';
-  open.rel = 'noopener';
-  actions.append(open);
-  const remove = node('button', '', 'Удалить');
-  remove.type = 'button';
-  remove.addEventListener('click', async () => {
-    if (!window.confirm(`Удалить документ «${doc.title}» и его локальную копию?`)) return;
-    try { await request(`/api/admin/documents/${doc.id}`, {method: 'DELETE'}); toast('Документ удалён'); await loadDocuments(); await loadParts(); await loadStats(); }
-    catch (error) { toast(error.message, true); }
-  });
-  actions.append(remove);
-  row.append(actions);
-  return row;
-}
-
-async function loadDocuments() {
-  const list = $('document-list');
-  if (!list) return;
-  const machine = selectedMachine();
-  if (!machine) { list.replaceChildren(node('div', 'empty-box', 'Сначала создайте карточку техники.')); return; }
-  try {
-    const docs = await request(`/api/admin/documents?machine_id=${machine.id}`);
-    list.replaceChildren();
-    if (!docs.length) list.append(node('div', 'empty-box', 'Для этой техники ещё не загружено руководство.'));
-    docs.forEach(doc => list.append(addDocRow(doc)));
-  } catch (error) { list.replaceChildren(node('div', 'empty-box', `Не удалось получить документы: ${error.message}`)); }
-}
-
-async function loadImages() {
-  const list = $('image-list');
-  if (!list) return;
-  const machine = selectedMachine();
-  if (!machine) { list.replaceChildren(node('div', 'empty-box', 'Сначала создайте карточку техники.')); return; }
-  try {
-    const images = await request(`/api/admin/media?machine_id=${machine.id}`);
-    list.replaceChildren();
-    if (!images.length) list.append(node('div', 'empty-box', 'Изображений пока нет.'));
-    images.forEach(image => {
-      const row = node('article', 'image-row');
-      const preview = node('img'); preview.src = image.url; preview.alt = image.caption || 'Фото техники';
-      const info = node('div'); info.append(node('strong', '', image.caption || 'Без подписи')); info.append(node('small', '', image.filename));
-      row.append(preview, info);
-      const open = node('a'); open.href = image.url; open.target = '_blank'; open.rel = 'noopener'; open.textContent = 'Открыть';
-      row.append(open); list.append(row);
+  function setStep(step) {
+    document.querySelectorAll('.steps li').forEach((item) => {
+      const value = Number(item.dataset.step);
+      item.classList.toggle('current', value === step);
+      item.classList.toggle('done', value < step);
     });
-  } catch (error) { list.replaceChildren(node('div', 'empty-box', `Не удалось получить изображения: ${error.message}`)); }
-}
-
-function statusLabel(status) {
-  if (status === 'explicit_or_component_named_in_manual') return ['Функция подтверждена текстом', 'direct'];
-  if (status === 'assembly_role_only') return ['Описана только функция узла', 'assembly'];
-  return ['Индивидуальная функция не указана', 'unknown'];
-}
-
-function partCard(part, document) {
-  const card = node('article', 'part-card');
-  const identity = node('div', 'part-ident');
-  identity.append(node('strong', '', part.name));
-  identity.append(node('small', '', `${part.designation || 'Обозначение в таблице не заполнено'} · позиция ${part.position} · количество ${part.quantity} шт.`));
-  identity.append(node('small', '', `Рисунок ${part.figure_refs.join(', ')} · каталог PDF, стр. ${part.catalog_page}${part.note ? ` · ${part.note}` : ''}`));
-  card.append(identity);
-
-  const assembly = node('div', 'part-assembly');
-  assembly.append(node('strong', '', part.assembly));
-  assembly.append(node('small', '', `Сборочная единица ${part.assembly_code}`));
-  const [label, css] = statusLabel(part.individual_role_status);
-  assembly.append(node('span', `part-status ${css}`, label));
-  card.append(assembly);
-
-  const explanation = node('div', 'part-function');
-  explanation.textContent = part.individual_role || 'В руководстве индивидуальная функция не установлена.';
-  if (part.individual_role_caveat) explanation.append(node('div', 'small-note', part.individual_role_caveat));
-  const source = part.individual_role_source;
-  if (source?.quote) {
-    const quote = node('blockquote', '', `«${source.quote}»`);
-    explanation.append(quote);
   }
-  const details = node('div', 'part-details');
-  details.append(explanation);
-
-  const assessment = part.expert_assessment;
-  if (assessment?.hypothesis) {
-    const expert = node('div', 'part-expert');
-    expert.append(node('strong', '', `Экспертная гипотеза · уверенность: ${{high: 'высокая', medium: 'средняя', low: 'низкая'}[assessment.confidence] || 'не оценена'}`));
-    expert.append(node('p', '', assessment.hypothesis));
-    expert.append(node('small', '', 'Инженерный вывод по названию и взрыв-схеме; не подтверждён изготовителем и не является фактом из руководства.'));
-    details.append(expert);
-  }
-  card.append(details);
-
-  const links = node('div', 'part-source');
-  const catalog = node('a', '', `Каталог, стр. ${part.catalog_page} →`);
-  catalog.href = `/api/admin/documents/${document.document_id}/file#page=${part.catalog_page}`;
-  catalog.target = '_blank'; catalog.rel = 'noopener'; links.append(catalog);
-  if (source?.page) {
-    const manual = node('a', '', `Функция: руководство, стр. ${source.page} →`);
-    manual.href = `/api/admin/documents/${document.document_id}/file#page=${source.page}`;
-    manual.target = '_blank'; manual.rel = 'noopener'; links.append(manual);
-  }
-  for (const page of assessment?.drawing_pages || []) {
-    const drawing = node('a', '', `Схема (основание гипотезы), стр. ${page} →`);
-    drawing.href = `/api/admin/documents/${document.document_id}/file#page=${page}`;
-    drawing.target = '_blank'; drawing.rel = 'noopener'; links.append(drawing);
-  }
-  card.append(links);
-  return card;
-}
-
-async function loadParts() {
-  const list = $('part-list');
-  if (!list) return;
-  const machine = selectedMachine();
-  if (!machine) { list.replaceChildren(node('div', 'empty-box', 'Сначала создайте карточку техники.')); return; }
-  try {
-    const q = $('parts-search')?.value.trim() || '';
-    const data = await request(`/api/admin/parts?machine_id=${machine.id}&q=${encodeURIComponent(q)}&limit=250`);
-    list.replaceChildren();
-    const docs = data.documents || [];
-    const indexedDocs = docs.filter(doc => doc.extraction?.positions_total);
-    if (!indexedDocs.length) {
-      $('parts-heading').textContent = 'Каталожный индекс отсутствует';
-      $('parts-summary').textContent = 'Для точного PDF Kolibri ГРН-471 v4 позиции будут разобраны локально; другие версии не подменяются похожим каталогом.';
-      $('parts-coverage').replaceChildren();
-      list.append(node('div', 'empty-box', 'Загрузите руководство Kolibri ГРН-471 v4, чтобы создать проверяемую таблицу запчастей.'));
-      $('parts-gaps').replaceChildren();
-      return;
+  function setBusy(button, busy, text) {
+    button.disabled = busy;
+    if (busy) {
+      button.dataset.label = button.innerHTML;
+      button.textContent = text;
+    } else if (button.dataset.label) {
+      button.innerHTML = button.dataset.label;
+      delete button.dataset.label;
     }
-    const total = indexedDocs.reduce((sum, doc) => sum + (doc.extraction?.positions_total || doc.parts.length), 0);
-    const visible = indexedDocs.reduce((sum, doc) => sum + doc.parts.length, 0);
-    $('parts-heading').textContent = q ? `${visible} найдено · ${total} позиций в базе` : `${total} каталожных позиций`;
-    $('parts-summary').textContent = 'Локальная экспертная база, не переобученная LLM и не утверждённый эталон. Дословные данные руководства показаны отдельно от инженерных гипотез по каталоговым названиям и взрыв-схемам; гипотезы не подтверждены изготовителем.';
-    const coverage = $('parts-coverage'); coverage.replaceChildren();
-    for (const [label, text] of [
-      ['Фигуры', '1–9'], ['Позиции', String(total)],
-      ['Функция подтверждена', String(indexedDocs.reduce((sum, doc) => sum + (doc.extraction?.role_status_counts?.explicit_or_component_named_in_manual || 0), 0))],
-      ['Только функция узла', String(indexedDocs.reduce((sum, doc) => sum + (doc.extraction?.role_status_counts?.assembly_role_only || 0), 0))],
-      ['Без индивидуальной функции', String(indexedDocs.reduce((sum, doc) => sum + (doc.extraction?.role_status_counts?.catalog_membership_only || 0), 0))],
-      ['Экспертных гипотез', String(indexedDocs.reduce((sum, doc) => sum + doc.parts.filter(part => part.expert_assessment?.status === 'engineering_hypothesis').length, 0))],
-    ]) coverage.append(node('span', 'coverage-chip', `${label}: ${text}`));
-
-    for (const doc of indexedDocs) {
-      for (const part of doc.parts) list.append(partCard(part, doc));
+  }
+  function machineCode(model) {
+    const transliteration = { 'а':'A','б':'B','в':'V','г':'G','д':'D','е':'E','ё':'E','ж':'ZH','з':'Z','и':'I','й':'I','к':'K','л':'L','м':'M','н':'N','о':'O','п':'P','р':'R','с':'S','т':'T','у':'U','ф':'F','х':'H','ц':'TS','ч':'CH','ш':'SH','щ':'SHCH','ъ':'','ы':'Y','ь':'','э':'E','ю':'YU','я':'YA' };
+    let suffix = model.toLowerCase().replace(/[а-яё]/g, (char) => transliteration[char] || '').toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'MACHINE';
+    let code = `KOLIBRI-${suffix}`;
+    let index = 2;
+    while (state.machines.some((machine) => machine.code.toLowerCase() === code.toLowerCase())) code = `KOLIBRI-${suffix}-${index++}`;
+    return code;
+  }
+  function renderMachinePicker() {
+    const wrap = $('#machine-picker-wrap');
+    const select = $('#machine-select');
+    wrap.hidden = !state.machines.length;
+    select.innerHTML = state.machines.map((machine) => `<option value="${machine.id}">${escapeHtml(machine.manufacturer)} ${escapeHtml(machine.model)}</option>`).join('');
+    if (state.machineId) select.value = String(state.machineId);
+  }
+  function render() {
+    const machine = selectedMachine();
+    const hasMachine = Boolean(machine);
+    $('#wizard-panel').hidden = hasMachine && !state.newFlow;
+    $('#machine-panel').hidden = !hasMachine;
+    $('#content-panel').hidden = !hasMachine;
+    $('#page-heading').textContent = state.newFlow ? 'Добавим новую технику' : (hasMachine ? `${machine.manufacturer} ${machine.model}` : 'Соберём базу Kolibri вместе');
+    if (hasMachine) {
+      $('#machine-panel [name="manufacturer"]').value = machine.manufacturer || 'Kolibri';
+      $('#machine-panel [name="model"]').value = machine.model || '';
+      $('#machine-panel [name="machine_type"]').value = machine.machine_type || '';
+      $('#machine-panel [name="description"]').value = machine.description || '';
+      modelField.parentElement.hidden = !state.newFlow;
+      modelField.required = state.newFlow;
+      $('#manual-state').textContent = state.documents.length ? `${state.documents.length} PDF обработано` : 'Добавьте руководство';
+      $('#manual-state').classList.toggle('ready', state.documents.length > 0);
+      setStep(state.documents.length ? 3 : 2);
+    } else {
+      modelField.parentElement.hidden = false;
+      modelField.required = true;
+      setStep(1);
     }
-    if (!visible) list.append(node('div', 'empty-box', 'По этому запросу каталожных позиций не найдено.'));
-    const gaps = $('parts-gaps'); gaps.replaceChildren();
-    for (const doc of indexedDocs) {
-      for (const gap of doc.known_catalog_gaps || []) {
-        const item = node('div', 'part-gap');
-        item.textContent = `${gap.component}: ${gap.instruction} Статус: ${gap.status}.`;
-        gaps.append(item);
+    renderMachinePicker();
+    renderNodes();
+    renderPhotos();
+    renderDocuments();
+  }
+  async function loadMachineData() {
+    if (!state.machineId) {
+      state.nodes = []; state.documents = []; state.photos = []; render(); return;
+    }
+    const id = encodeURIComponent(state.machineId);
+    const results = await Promise.all([
+      request(`/api/admin/nodes?machine_id=${id}`),
+      request(`/api/admin/documents?machine_id=${id}`),
+      request(`/api/admin/media?machine_id=${id}`)
+    ]);
+    [state.nodes, state.documents, state.photos] = results;
+    render();
+  }
+  async function loadMachines(preferredId = null) {
+    state.machines = await request('/api/admin/machines');
+    if (preferredId && state.machines.some((machine) => machine.id === Number(preferredId))) state.machineId = Number(preferredId);
+    else if (state.machineId && state.machines.some((machine) => machine.id === Number(state.machineId))) state.machineId = Number(state.machineId);
+    else state.machineId = state.machines[0]?.id ?? null;
+    renderMachinePicker();
+    await loadMachineData();
+  }
+  function renderNodes() {
+    const list = $('#node-list');
+    $('#node-count').textContent = state.nodes.length;
+    const photoSelect = $('#photo-node');
+    const current = photoSelect.value;
+    photoSelect.innerHTML = '<option value="">Фото всей машины / без узла</option>' + state.nodes.map((node) => `<option value="${node.id}">${node.number}. ${escapeHtml(node.title)}</option>`).join('');
+    if (state.nodes.some((node) => String(node.id) === current)) photoSelect.value = current;
+    list.innerHTML = state.nodes.length ? state.nodes.map((node) => `
+      <article class="item-row"><span class="item-number">${node.number}</span><div><strong>${escapeHtml(node.title)}</strong>${node.purpose ? `<small>${escapeHtml(node.purpose)}</small>` : '<small>Назначение можно добавить в заметке при следующем обновлении карточки.</small>'}</div></article>`).join('') : '<p class="empty">Добавьте первый узел — например, раму или колесо.</p>';
+  }
+  function renderPhotos() {
+    const list = $('#photo-list');
+    $('#photo-count').textContent = state.photos.length;
+    list.innerHTML = state.photos.length ? state.photos.map((photo) => `
+      <article class="photo-item"><a href="${escapeHtml(photo.url)}" target="_blank" rel="noopener"><img src="${escapeHtml(photo.url)}" alt="${escapeHtml(photo.caption || 'Фото техники')}" loading="lazy"></a><p>${escapeHtml(photo.caption || photo.filename || 'Фото')}${photo.node_id ? ' · узел' : ''}</p></article>`).join('') : '<p class="empty">Загруженные фото появятся здесь.</p>';
+  }
+  function renderDocuments() {
+    const list = $('#document-list');
+    $('#document-count').textContent = state.documents.length;
+    list.innerHTML = state.documents.length ? state.documents.map((doc) => `
+      <article class="item-row"><span class="item-number">PDF</span><div><strong><a href="${escapeHtml(doc.url)}" target="_blank" rel="noopener">${escapeHtml(doc.title || doc.filename)}</a></strong><small>${doc.page_count} стр. · ${doc.pages_indexed ? 'текст проиндексирован' : 'индекс не найден'} · ${escapeHtml(doc.filename)}</small></div></article>`).join('') : '<p class="empty">Документы ещё не добавлены.</p>';
+    if (state.documents.length) {
+      const latest = state.documents[0];
+      $('#document-summary').hidden = false;
+      $('#document-summary').textContent = `Обработано страниц: ${latest.page_count}. Страниц с доступным текстом: ${latest.pages_indexed ? 'индекс готов' : 'нет текстового индекса'}. Поиск в ответах сможет ссылаться на страницы PDF. Это локальная индексация, не обучение языковой модели.`;
+    } else $('#document-summary').hidden = true;
+  }
+
+  fileInput.addEventListener('change', () => {
+    $('#manual-file-name').textContent = fileInput.files[0]?.name || 'Выберите руководство';
+  });
+  $('#new-machine').addEventListener('click', () => {
+    state.machineId = null; state.newFlow = true;
+    setupForm.reset(); modelField.value = 'ГРН-471';
+    $('#manual-file-name').textContent = 'Выберите руководство';
+    setStatus('#setup-status', '');
+    render(); window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+  $('#machine-select').addEventListener('change', async (event) => {
+    state.machineId = Number(event.target.value) || null; state.newFlow = false;
+    try { await loadMachineData(); } catch (error) { setStatus('#setup-status', error.message, 'bad'); }
+  });
+
+  setupForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = $('#process-pdf');
+    const file = fileInput.files[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.pdf')) return setStatus('#setup-status', 'Выберите файл PDF.', 'bad');
+    setBusy(button, true, 'Обрабатываю PDF…');
+    setStatus('#setup-status', 'Сохраняю файл, извлекаю текст и строю локальный индекс. Не закрывайте это окно.', '');
+    try {
+      if (!state.machineId) {
+        const model = modelField.value.trim();
+        const machine = await request('/api/admin/machines', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: machineCode(model), manufacturer: 'Kolibri', model, machine_type: 'Сельскохозяйственная техника', description: '' })
+        });
+        state.machines.push(machine); state.machineId = machine.id; state.newFlow = false;
+        await loadMachineData();
       }
-    }
-  } catch (error) {
-    list.replaceChildren(node('div', 'empty-box', `Не удалось загрузить структуру запчастей: ${error.message}`));
-  }
-}
+      const body = new FormData();
+      body.append('machine_id', state.machineId);
+      body.append('title', file.name.replace(/\.pdf$/i, ''));
+      body.append('file', file);
+      const result = await request('/api/admin/documents', { method: 'POST', body });
+      setStatus('#setup-status', `Готово: обработано ${result.page_count} стр. и сохранён локальный индекс. Языковая модель не дообучалась.`, 'good');
+      setupForm.reset(); $('#manual-file-name').textContent = 'Выберите руководство';
+      await loadMachines(state.machineId);
+      state.newFlow = false; render();
+    } catch (error) {
+      setStatus('#setup-status', error.message, 'bad');
+      if (state.machineId) { try { await loadMachineData(); } catch (_) { /* leave original error */ } }
+    } finally { setBusy(button, false); }
+  });
 
-$('machine-form').addEventListener('submit', async event => {
-  event.preventDefault();
-  const status = $('machine-status'); status.textContent = 'Создаём карточку…';
-  const body = Object.fromEntries(new FormData(event.currentTarget).entries());
-  try {
-    const machine = await request('/api/admin/machines', {method: 'POST', body: JSON.stringify(body)});
-    state.selectedMachine = machine.id;
-    localStorage.setItem('kolibri-admin-machine', String(machine.id));
-    toast(`Добавлена техника ${machine.model}`);
-    await loadMachines();
-  } catch (error) { status.textContent = error.message; toast(error.message, true); }
-});
+  $('#card-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const body = Object.fromEntries(new FormData(form).entries());
+    const button = form.querySelector('button[type="submit"]');
+    setBusy(button, true, 'Сохраняю…');
+    try {
+      const updated = await request(`/api/admin/machines/${state.machineId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      });
+      state.machines = state.machines.map((machine) => machine.id === updated.id ? { ...machine, ...updated } : machine);
+      setStatus('#card-status', 'Карточка сохранена на этом компьютере.', 'good');
+      render();
+    } catch (error) { setStatus('#card-status', error.message, 'bad'); }
+    finally { setBusy(button, false); }
+  });
+  $('#node-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = Object.fromEntries(new FormData(form).entries());
+    const button = form.querySelector('button[type="submit"]');
+    setBusy(button, true, 'Добавляю…');
+    try {
+      await request('/api/admin/nodes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ machine_id: state.machineId, ...data }) });
+      form.reset(); setStatus('#node-status', 'Узел добавлен.', 'good'); await loadMachineData();
+    } catch (error) { setStatus('#node-status', error.message, 'bad'); }
+    finally { setBusy(button, false); }
+  });
+  $('#photo-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const body = new FormData(form); body.append('machine_id', state.machineId);
+    if (!body.get('node_id')) body.delete('node_id');
+    const button = form.querySelector('button[type="submit"]');
+    setBusy(button, true, 'Загружаю…');
+    try {
+      await request('/api/admin/media', { method: 'POST', body });
+      form.reset(); setStatus('#photo-status', 'Фото сохранено локально.', 'good'); await loadMachineData();
+    } catch (error) { setStatus('#photo-status', error.message, 'bad'); }
+    finally { setBusy(button, false); }
+  });
 
-$('pdf-form').addEventListener('submit', async event => {
-  event.preventDefault();
-  const machine = selectedMachine();
-  if (!machine) { toast('Сначала создайте карточку техники', true); return; }
-  const form = event.currentTarget;
-  const status = $('pdf-status');
-  const data = new FormData(form);
-  data.set('machine_id', String(machine.id));
-  status.textContent = 'Сохраняем файл и разбираем страницы PDF…';
-  const button = form.querySelector('button[type=submit]'); button.disabled = true;
-  try {
-    const result = await request('/api/admin/documents', {method: 'POST', body: data});
-    status.textContent = `Готово: ${result.page_count} страниц, ${result.pages_with_text} страниц с текстом${result.parts_indexed ? `, ${result.parts_indexed} позиций каталога связаны с узлами` : ''}.`;
-    toast(`Руководство проиндексировано: ${result.page_count} стр.`);
-    form.reset();
-    await loadDocuments(); await loadParts(); await loadStats();
-  } catch (error) { status.textContent = error.message; toast(error.message, true); }
-  finally { button.disabled = false; }
-});
-
-$('image-form').addEventListener('submit', async event => {
-  event.preventDefault();
-  const machine = selectedMachine();
-  if (!machine) { toast('Сначала создайте карточку техники', true); return; }
-  const form = event.currentTarget, status = $('image-status'), button = form.querySelector('button[type=submit]');
-  const data = new FormData(form); data.set('machine_id', String(machine.id));
-  status.textContent = 'Проверяем и сохраняем изображение…'; button.disabled = true;
-  try {
-    await request('/api/admin/media', {method: 'POST', body: data});
-    status.textContent = 'Изображение сохранено в локальной базе.'; toast('Фото добавлено'); form.reset();
-    await loadImages(); await loadStats();
-  } catch (error) { status.textContent = error.message; toast(error.message, true); }
-  finally { button.disabled = false; }
-});
-
-function addCitation(citation) {
-  const card = node('article', 'citation-card');
-  card.append(node('strong', '', `${citation.document_title} · PDF, стр. ${citation.page}`));
-  card.append(node('p', '', `«${citation.quote}»`));
-  const link = node('a');
-  link.href = citation.viewer_url || `${citation.url || `/api/admin/documents/${citation.document_id}/file`}#page=${citation.page}`;
-  link.target = '_blank'; link.rel = 'noopener'; link.textContent = 'Открыть страницу источника →';
-  card.append(link); return card;
-}
-
-function addEvidence(hit) {
-  const card = node('article', 'evidence-card');
-  const sectionLabel = hit.section === 'parts_catalog' ? 'КАТАЛОГ ДЕТАЛЕЙ' : (hit.section === 'manual' ? 'РУКОВОДСТВО' : 'ДОКУМЕНТ');
-  card.append(node('strong', '', `${sectionLabel} · ${hit.document_title} · стр. ${hit.page}`));
-  card.append(node('p', '', hit.text));
-  const link = node('a'); link.href = `/api/admin/documents/${hit.document_id}/file#page=${hit.page}`;
-  link.target = '_blank'; link.rel = 'noopener'; link.textContent = 'Открыть PDF →'; card.append(link);
-  return card;
-}
-
-$('question-form').addEventListener('submit', async event => {
-  event.preventDefault();
-  const machine = selectedMachine();
-  if (!machine) { toast('Сначала создайте карточку техники', true); return; }
-  const question = $('question-input').value.trim();
-  const status = $('question-status'), button = event.currentTarget.querySelector('button[type=submit]');
-  if (!question) return;
-  $('answer-card').hidden = true; status.textContent = 'Ищем релевантные страницы и проверяем ответ…'; button.disabled = true;
-  try {
-    const result = await request('/api/admin/assistant/answer', {method: 'POST', body: JSON.stringify({machine_id: machine.id, question})});
-    $('answer-card').hidden = false;
-    $('answer-heading').textContent = result.status === 'answered' ? 'Ответ с источниками' : (result.status === 'part_lookup' ? 'Ответ из локального справочника' : 'Проверка не пройдена');
-    $('answer-badge').textContent = statusText[result.status] || result.status;
-    $('answer-text').textContent = result.answer || 'Ответ отсутствует';
-    const citations = $('answer-citations'); citations.replaceChildren();
-    (result.citations || []).forEach(item => citations.append(addCitation(item)));
-    const evidence = $('answer-evidence'); evidence.replaceChildren();
-    (result.evidence || []).forEach(item => evidence.append(addEvidence(item)));
-    status.textContent = result.status === 'answered' ? 'Ответ прошёл проверки.' : (result.status === 'part_lookup' ? 'Справочник не использовал генеративную модель; ссылки ведут к каталогу и руководству.' : 'Ни один неподтверждённый ответ не показан.');
-  } catch (error) { status.textContent = error.message; toast(error.message, true); }
-  finally { button.disabled = false; }
-});
-
-document.querySelectorAll('[data-question]').forEach(button => button.addEventListener('click', () => {
-  $('question-input').value = button.dataset.question;
-  $('question-input').focus();
-}));
-$('refresh-docs').addEventListener('click', () => { loadDocuments(); loadImages(); loadParts(); loadStats(); });
-$('refresh-parts').addEventListener('click', loadParts);
-$('parts-search').addEventListener('input', () => {
-  clearTimeout(state.partsSearchTimer);
-  state.partsSearchTimer = setTimeout(loadParts, 180);
-});
-
-loadMachines();
+  loadMachines().catch((error) => {
+    $('#wizard-panel').innerHTML = `<div class="error-box">Не удалось загрузить Kolibri: ${escapeHtml(error.message)}. Убедитесь, что локальный сервер запущен.</div>`;
+  });
+})();
