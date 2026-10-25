@@ -29,6 +29,26 @@ let storageLabel = 'выбирается';
 let networkListener;
 
 const $ = (selector, root = document) => root.querySelector(selector);
+let appReadyForIntro = false;
+let introAnimationFinished = false;
+function dismissIntroWhenReady() {
+  if (!appReadyForIntro || !introAnimationFinished) return;
+  $('#launchSplash')?.classList.add('dismiss');
+}
+function finishIntroAnimation() {
+  if (introAnimationFinished) return;
+  introAnimationFinished = true;
+  if (launchAnimation && !launchAnimation.ended) launchAnimation.pause();
+  dismissIntroWhenReady();
+}
+const launchAnimation = $('#launchAnimation');
+if (launchAnimation) {
+  launchAnimation.addEventListener('ended', finishIntroAnimation, { once: true });
+  launchAnimation.addEventListener('error', finishIntroAnimation, { once: true });
+  window.setTimeout(finishIntroAnimation, 5500);
+} else {
+  introAnimationFinished = true;
+}
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[char]));
@@ -561,8 +581,14 @@ async function setupNetworkListener() {
 
 async function boot() {
   storage = await openStorage();
-  mergeSavedState(await storage.load());
+  try {
+    mergeSavedState(await storage.load());
+  } catch (error) {
+    console.warn('Не удалось прочитать локальное состояние; открываем сохранённый каталог по умолчанию.', error);
+  }
   render();
+  appReadyForIntro = true;
+  dismissIntroWhenReady();
   await setupNetworkListener();
   if (appState.serverUrl && navigator.onLine !== false) {
     void syncNow();

@@ -3,13 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#2e7d32">
+  <meta name="theme-color" content="#f7f8f1">
   <meta name="description" content="Справочник сельскохозяйственной техники Kolibri">
   <link rel="stylesheet" href="/app.css">
   <title>Kolibri — справочник сельхозтехники</title>
 </head>
 <body class="app-page">
   <div class="phone" id="app">
+    <div class="launch-splash" id="launchSplash" aria-hidden="true">
+      <video id="launchAnimation" autoplay muted playsinline preload="auto" poster="./kolibri-intro-poster.png">
+        <source src="./kolibri-intro.mp4" type="video/mp4">
+      </video>
+    </div>
     <header class="app-header">
       <button class="back" id="back" data-action="back" aria-label="Назад">‹</button>
       <img class="brand-mark" src="./kolibri-mark.png" alt="">

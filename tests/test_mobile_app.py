@@ -43,6 +43,20 @@ class MobileAppStageThreeTests(unittest.TestCase):
         self.assertNotIn(".status-strip", css)
         self.assertNotIn(".notice", css)
 
+    def test_kolibri_splash_uses_the_brand_video_and_waits_for_app_readiness(self):
+        app = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
+        html = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
+        css = (ROOT / "web/app/app.css").read_text(encoding="utf-8")
+        video = (ROOT / "web/app/kolibri-intro.mp4").read_bytes()
+        self.assertIn('id="launchAnimation" autoplay muted playsinline', html)
+        self.assertIn('src="./kolibri-intro.mp4"', html)
+        self.assertIn("launchAnimation.addEventListener('ended'", app)
+        self.assertIn("launchAnimation.addEventListener('error'", app)
+        self.assertIn("if (!appReadyForIntro || !introAnimationFinished)", app)
+        self.assertIn("background:#f7f8f1", css)
+        self.assertEqual(video[4:8], b"ftyp")
+        self.assertLess(len(video), 2_000_000)
+
     def test_offline_storage_and_queue_support_remains_in_mobile_source(self):
         app = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
         self.assertIn("IndexedDB в браузере", app)
