@@ -1,7 +1,21 @@
 name: Build Windows EXE and Android APK — GRN-471 demo (stages 4–6)
 
 on:
-  # Publish the combined APK/EXE prerelease only when explicitly dispatched.
+  push:
+    branches:
+      - arena/95c59e81-calibre
+    paths:
+      - '.github/workflows/build-android.yml'
+      - '.github/workflows/build-windows-expert.yml'
+      - 'calibre/**'
+      - 'server.py'
+      - 'desktop_launcher.py'
+      - 'web/**'
+      - 'mobile/**'
+      - 'migrations/**'
+      - 'requirements-desktop.txt'
+      - 'requirements.txt'
+      - 'licenses/**'
   workflow_dispatch:
 
 permissions:
