@@ -1,6 +1,6 @@
 (() => {
   const $ = (selector) => document.querySelector(selector);
-  const state = { screen: 'home', returnScreen: null, returnMachineId: null, machines: [], machineId: null, newFlow: false, nodes: [], documents: [], photos: [], analysisRuns: [], analysisRun: null, activeClaimIndex: null, ollamaStatus: null };
+  const state = { screen: 'home', returnScreen: null, returnMachineId: null, machines: [], machineId: null, newFlow: false, newMachinePhotos: [], nodes: [], documents: [], photos: [], analysisRuns: [], analysisRun: null, activeClaimIndex: null, ollamaStatus: null };
   const setupForm = $('#setup-form');
   const modelField = setupForm.elements.model;
   const fileInput = $('#manual-file');
@@ -55,6 +55,26 @@
     while (state.machines.some((machine) => machine.code.toLowerCase() === code.toLowerCase())) code = `KOLIBRI-${suffix}-${index++}`;
     return code;
   }
+  function renderNewPhotoPreviews() {
+    const container = $('#new-machine-photo-previews');
+    if (!container) return;
+    let number = 1;
+    container.innerHTML = state.newMachinePhotos.map((photo, photoIndex) => {
+      const markers = photo.markers.map((marker) => {
+        const markerNumber = number++;
+        return { ...marker, markerNumber };
+      });
+      const pins = markers.map((marker) => `<span class="guided-photo-pin" style="left:${marker.x * 100}%;top:${marker.y * 100}%">${marker.markerNumber}</span>`).join('');
+      const labels = markers.length ? markers.map((marker) => `
+        <div class="guided-marker-row"><span class="guided-marker-number">${marker.markerNumber}</span><input type="text" maxlength="240" required placeholder="Название узла" value="${escapeHtml(marker.title)}" data-marker-title data-photo-index="${photoIndex}" data-marker-id="${escapeHtml(marker.id)}"><button type="button" class="button button-ghost marker-remove" data-remove-marker data-photo-index="${photoIndex}" data-marker-id="${escapeHtml(marker.id)}" aria-label="Удалить отметку ${marker.markerNumber}">×</button></div>`).join('') : '<p class="empty">Нажмите на фото, чтобы добавить первую отметку.</p>';
+      return `<article class="guided-photo-card"><div class="guided-photo-heading"><strong>${escapeHtml(photo.file.name)}</strong><button class="button button-ghost marker-remove" type="button" data-remove-photo="${photoIndex}" aria-label="Удалить фото">Удалить</button></div><div class="guided-photo-stage" data-photo-stage data-photo-index="${photoIndex}"><img src="${escapeHtml(photo.url)}" alt="${escapeHtml(photo.file.name)}">${pins}</div><label class="guided-sync-toggle"><input type="checkbox" data-photo-sync-index="${photoIndex}" ${photo.syncToPhones ? 'checked' : ''}> Разрешить передачу этого фото в APK по локальной сети</label><div class="guided-marker-list">${labels}</div></article>`;
+    }).join('');
+  }
+  function clearNewMachinePhotos() {
+    state.newMachinePhotos.forEach((photo) => URL.revokeObjectURL(photo.url));
+    state.newMachinePhotos = [];
+    renderNewPhotoPreviews();
+  }
   function adminTractorIllustration() {
     return `<svg class="tractor-art" viewBox="0 0 220 150" aria-hidden="true"><ellipse cx="128" cy="137" rx="91" ry="7" fill="#bdc9b8" opacity=".7"/><path d="M91 21q1-7 9-7h31q8 0 10 8l8 43h53q9 0 9 9v17q0 9-9 9h-70l-9-30H91z" fill="#3d7435"/><path d="M101 27h25l6 29H96z" fill="#f2f4eb"/><path d="M151 66h48q9 0 9 9v7h-57z" fill="#3d7435"/><rect x="177" y="39" width="7" height="28" rx="3.5" fill="#18251b"/><circle cx="94" cy="102" r="34" fill="#172019"/><circle cx="94" cy="102" r="15" fill="#f4f6ed"/><circle cx="94" cy="102" r="6" fill="#294b2b"/><circle cx="199" cy="111" r="22" fill="#172019"/><circle cx="199" cy="111" r="9" fill="#f4f6ed"/></svg>`;
   }
@@ -62,9 +82,10 @@
     const list = $('#admin-machine-list');
     if (!list) return;
     list.innerHTML = state.machines.length ? state.machines.map((machine, index) => `
-      <button class="admin-machine-card card-tone-${index % 2}" type="button" data-open-machine="${machine.id}">
+      <button class="admin-machine-card card-tone-${index % 2} ${machine.status === 'published' ? 'is-published' : 'is-draft'}" type="button" data-open-machine="${machine.id}">
         <h3>${escapeHtml(machine.model || 'Машина')}</h3>
         <p>${escapeHtml(machine.manufacturer || '')}${machine.manufacturer && machine.machine_type ? ' · ' : ''}${escapeHtml(machine.machine_type || 'Сельхозтехника')}</p>
+        <span class="machine-status-tag">${machine.status === 'published' ? 'Опубликовано' : 'Черновик'}</span>
         <span class="machine-open" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>
         ${adminTractorIllustration()}
       </button>`).join('') : '<div class="admin-empty">Пока нет карточек техники.<br>Создайте первую карточку кнопкой выше.</div>';
@@ -106,6 +127,11 @@
       $('#machine-panel [name="description"]').value = machine.description || '';
       $('#manual-state').textContent = state.documents.length ? `${state.documents.length} PDF обработано` : 'Добавьте руководство';
       $('#manual-state').classList.toggle('ready', state.documents.length > 0);
+      $('#machine-publish-toggle').checked = machine.status === 'published';
+      $('#publication-state').textContent = machine.status === 'published'
+        ? 'Опубликовано: карточка доступна в APK. Снятие галочки уберёт её из приложения.'
+        : 'Черновик: карточка видна в каталоге админки серой, но не передаётся в APK.';
+      $('#publication-review').classList.toggle('is-published', machine.status === 'published');
       setStep(state.documents.length ? 3 : 2);
     } else {
       setStep(1);
@@ -154,8 +180,12 @@
   function renderPhotos() {
     const list = $('#photo-list');
     $('#photo-count').textContent = state.photos.length;
-    list.innerHTML = state.photos.length ? state.photos.map((photo) => `
-      <article class="photo-item"><a href="${escapeHtml(photo.url)}" target="_blank" rel="noopener"><img src="${escapeHtml(photo.url)}" alt="${escapeHtml(photo.caption || 'Фото техники')}" loading="lazy"></a><p>${escapeHtml(photo.caption || photo.filename || 'Фото')}${photo.node_id ? ' · узел' : ''}</p><button type="button" class="button button-small ${photo.sync_to_phones ? 'button-secondary' : 'button-ghost'}" data-photo-sync="${photo.id}">${photo.sync_to_phones ? 'Отключить LAN-sync' : 'Разрешить передачу по LAN'}</button><small>${photo.sync_to_phones ? 'Фото остаётся внутренним; только локальная сеть.' : 'Сейчас доступно только на ПК.'}</small></article>`).join('') : '<p class="empty">Загруженные фото появятся здесь.</p>';
+    list.innerHTML = state.photos.length ? state.photos.map((photo) => {
+      const markers = state.nodes.filter((node) => node.marker_photo_id === photo.id && node.map_x != null && node.map_y != null);
+      const pins = markers.map((node) => `<span class="admin-photo-pin" style="left:${Math.max(0, Math.min(100, node.map_x * 100))}%;top:${Math.max(0, Math.min(100, node.map_y * 100))}%" title="${escapeHtml(node.title)}">${node.number}</span>`).join('');
+      const markerLabels = markers.map((node) => `<span class="photo-marker-label"><b>${node.number}</b> ${escapeHtml(node.title)}</span>`).join('');
+      return `<article class="photo-item"><a class="admin-photo-canvas" href="${escapeHtml(photo.url)}" target="_blank" rel="noopener"><img src="${escapeHtml(photo.url)}" alt="${escapeHtml(photo.caption || 'Фото техники')}" loading="lazy">${pins}</a><p>${escapeHtml(photo.caption || photo.filename || 'Фото')}${photo.node_id ? ' · узел' : ''}</p>${markerLabels ? `<div class="photo-marker-labels">${markerLabels}</div>` : ''}<button type="button" class="button button-small ${photo.sync_to_phones ? 'button-secondary' : 'button-ghost'}" data-photo-sync="${photo.id}">${photo.sync_to_phones ? 'Отключить LAN-sync' : 'Разрешить передачу по LAN'}</button><small>${photo.sync_to_phones ? 'Фото остаётся внутренним; только локальная сеть.' : 'Сейчас доступно только на ПК.'}</small></article>`;
+    }).join('') : '<p class="empty">Загруженные фото появятся здесь.</p>';
   }
   function renderDocuments() {
     const list = $('#document-list');
@@ -347,14 +377,61 @@
     state.screen = 'workspace';
     state.machineId = null;
     state.newFlow = true;
+    clearNewMachinePhotos();
     $('#machine-create-form').reset();
-    $('#machine-create-form [name="manufacturer"]').value = 'Kolibri';
-    $('#machine-create-form [name="machine_type"]').value = 'Сельскохозяйственная техника';
     setStatus('#machine-create-status', '');
     render(); window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   $('#new-machine').addEventListener('click', startMachineCreate);
   $('#home-create-machine').addEventListener('click', startMachineCreate);
+  $('#new-machine-photos').addEventListener('change', (event) => {
+    clearNewMachinePhotos();
+    state.newMachinePhotos = Array.from(event.target.files || []).map((file) => ({
+      file, url: URL.createObjectURL(file), markers: [], syncToPhones: false
+    }));
+    renderNewPhotoPreviews();
+  });
+  $('#new-machine-photo-previews').addEventListener('click', (event) => {
+    const removePhoto = event.target.closest('[data-remove-photo]');
+    if (removePhoto) {
+      const [photo] = state.newMachinePhotos.splice(Number(removePhoto.dataset.removePhoto), 1);
+      if (photo) URL.revokeObjectURL(photo.url);
+      renderNewPhotoPreviews();
+      return;
+    }
+    const removeMarker = event.target.closest('[data-remove-marker]');
+    if (removeMarker) {
+      const photo = state.newMachinePhotos[Number(removeMarker.dataset.photoIndex)];
+      if (photo) photo.markers = photo.markers.filter((marker) => marker.id !== removeMarker.dataset.markerId);
+      renderNewPhotoPreviews();
+      return;
+    }
+    const stage = event.target.closest('[data-photo-stage]');
+    if (!stage || event.target.closest('button')) return;
+    const photo = state.newMachinePhotos[Number(stage.dataset.photoIndex)];
+    const image = stage.querySelector('img');
+    const rect = image.getBoundingClientRect();
+    const x = (event.clientX - rect.left) / rect.width;
+    const y = (event.clientY - rect.top) / rect.height;
+    if (!photo || x < 0 || x > 1 || y < 0 || y > 1) return;
+    const id = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+    photo.markers.push({ id, title: '', x, y });
+    renderNewPhotoPreviews();
+    const input = Array.from($('#new-machine-photo-previews').querySelectorAll('[data-marker-title]'))
+      .find((item) => item.dataset.markerId === id);
+    input?.focus();
+  });
+  $('#new-machine-photo-previews').addEventListener('input', (event) => {
+    if (!event.target.matches('[data-marker-title]')) return;
+    const photo = state.newMachinePhotos[Number(event.target.dataset.photoIndex)];
+    const marker = photo?.markers.find((item) => item.id === event.target.dataset.markerId);
+    if (marker) marker.title = event.target.value;
+  });
+  $('#new-machine-photo-previews').addEventListener('change', (event) => {
+    if (!event.target.matches('[data-photo-sync-index]')) return;
+    const photo = state.newMachinePhotos[Number(event.target.dataset.photoSyncIndex)];
+    if (photo) photo.syncToPhones = event.target.checked;
+  });
   $('#admin-machine-list').addEventListener('click', async (event) => {
     const card = event.target.closest('[data-open-machine]');
     if (!card) return;
@@ -372,6 +449,7 @@
     render(); window.scrollTo({ top: 0, behavior: 'smooth' });
   });
   $('#cancel-machine-create').addEventListener('click', async () => {
+    clearNewMachinePhotos();
     state.newFlow = false;
     state.screen = state.returnScreen || 'home';
     state.machineId = state.returnMachineId || null;
@@ -383,22 +461,93 @@
   $('#machine-create-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    const data = Object.fromEntries(new FormData(form).entries());
+    const model = form.elements.model.value.trim();
+    const pdfFile = $('#new-machine-pdf').files[0] || null;
+    const photos = state.newMachinePhotos.slice();
+    const missingLabel = photos.some((photo) => photo.markers.some((marker) => !marker.title.trim()));
+    if (missingLabel) {
+      setStatus('#machine-create-status', 'Подпишите каждый пронумерованный узел или удалите ненужную отметку.', 'bad');
+      form.querySelector('[data-marker-title]:invalid')?.focus();
+      return;
+    }
+    if (pdfFile && !pdfFile.name.toLowerCase().endsWith('.pdf')) {
+      setStatus('#machine-create-status', 'Выберите файл PDF.', 'bad');
+      return;
+    }
     const button = form.querySelector('button[type="submit"]');
-    setBusy(button, true, 'Создаю…');
+    setBusy(button, true, 'Создаю черновик…');
+    let createdMachine = null;
+    let failure = null;
     try {
-      const machine = await request('/api/admin/machines', {
+      createdMachine = await request('/api/admin/machines', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...data, code: machineCode(data.model) }),
+        body: JSON.stringify({ code: machineCode(model), manufacturer: 'Kolibri', model,
+          machine_type: 'Сельскохозяйственная техника', description: '' }),
       });
+      const uploadedPhotos = [];
+      for (const photo of photos) {
+        const body = new FormData();
+        body.append('machine_id', createdMachine.id);
+        body.append('file', photo.file);
+        body.append('caption', photo.file.name);
+        body.append('photo_kind', 'machine_scheme');
+        body.append('sync_to_phones', String(photo.syncToPhones));
+        const uploaded = await request('/api/admin/media', { method: 'POST', body });
+        uploadedPhotos.push({ local: photo, id: uploaded.id });
+        for (const marker of photo.markers) {
+          await request('/api/admin/nodes', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ machine_id: createdMachine.id, title: marker.title.trim(), purpose: '',
+              map_x: marker.x, map_y: marker.y, marker_photo_id: uploaded.id }),
+          });
+        }
+      }
+      if (pdfFile) {
+        const body = new FormData();
+        body.append('machine_id', createdMachine.id);
+        body.append('title', pdfFile.name.replace(/\.pdf$/i, ''));
+        body.append('file', pdfFile);
+        await request('/api/admin/documents', { method: 'POST', body });
+      }
+    } catch (error) {
+      failure = error;
+    }
+    if (createdMachine) {
       state.newFlow = false;
       state.screen = 'workspace';
+      state.machineId = createdMachine.id;
       state.returnMachineId = null;
       state.returnScreen = null;
-      await loadMachines(machine.id);
-      setStatus('#card-status', `Машина создана. Теперь можно добавить руководство, узлы и фотографии.`, 'good');
-    } catch (error) { setStatus('#machine-create-status', error.message, 'bad'); }
-    finally { setBusy(button, false); }
+      clearNewMachinePhotos();
+      $('#new-machine-pdf').value = '';
+      try { await loadMachines(createdMachine.id); }
+      catch (error) { failure = failure || error; }
+      setStatus('#card-status', failure
+        ? `Черновик создан, но не все файлы удалось загрузить: ${failure.message}. Откройте разделы ниже и добавьте недостающие данные.`
+        : 'Черновик создан. Проверьте название, фото, отметки и руководство; галочка выше опубликует карточку в приложении.',
+      failure ? 'bad' : 'good');
+      if (failure) $('#card-status').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+      setStatus('#machine-create-status', failure?.message || 'Не удалось создать карточку.', 'bad');
+    }
+    setBusy(button, false);
+  });
+  $('#machine-publish-toggle').addEventListener('change', async (event) => {
+    const toggle = event.currentTarget;
+    const desired = toggle.checked;
+    toggle.disabled = true;
+    try {
+      const result = await request(`/api/admin/machines/${state.machineId}/publication`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ published: desired }),
+      });
+      state.machines = state.machines.map((machine) => machine.id === result.id ? { ...machine, status: result.status } : machine);
+      render();
+      setStatus('#card-status', desired ? 'Карточка опубликована и попадёт в APK при следующей синхронизации телефона.' : 'Публикация снята; карточка осталась черновиком и скрыта в APK.', 'good');
+    } catch (error) {
+      toggle.checked = !desired;
+      setStatus('#card-status', error.message, 'bad');
+    } finally { toggle.disabled = false; }
   });
   $('#machine-select').addEventListener('change', async (event) => {
     state.screen = 'workspace';

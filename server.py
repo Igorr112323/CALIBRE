@@ -76,10 +76,17 @@ class MachineUpdate(BaseModel):
     description: str = Field(default="", max_length=4000)
 
 
+class MachinePublicationRequest(BaseModel):
+    published: bool
+
+
 class NodeCreate(BaseModel):
     machine_id: int = Field(gt=0)
     title: str = Field(min_length=1, max_length=240)
     purpose: str = Field(default="", max_length=4000)
+    map_x: float | None = Field(default=None, ge=0, le=1)
+    map_y: float | None = Field(default=None, ge=0, le=1)
+    marker_photo_id: int | None = Field(default=None, gt=0)
 
 
 class AssistantRequest(BaseModel):
@@ -379,6 +386,25 @@ def create_app(database_url: str | None = None, include_demo: bool = True,
                     "model": machine.model, "machine_type": machine.machine_type,
                     "description": machine.description, "status": machine.status}
 
+    @app.put("/api/admin/machines/{machine_id}/publication")
+    async def admin_set_machine_publication(machine_id: int, body: MachinePublicationRequest):
+        with Session(app.state.engine) as session:
+            machine = session.get(Machine, machine_id)
+            if machine is None or machine.is_demo or machine.status == "archived":
+                raise HTTPException(status_code=404, detail="Рабочая техника не найдена")
+            machine.status = "published" if body.published else "draft"
+            if body.published:
+                marker_nodes = session.scalars(select(Node).where(
+                    Node.machine_id == machine_id,
+                    Node.marker_photo_id.is_not(None),
+                    Node.status.in_(("review", "verified")),
+                )).all()
+                for node in marker_nodes:
+                    node.status = "published"
+            session.commit()
+            return {"id": machine.id, "status": machine.status,
+                    "published": machine.status == "published"}
+
     @app.get("/api/admin/nodes")
     async def admin_nodes(machine_id: int = Query(gt=0)):
         with Session(app.state.engine) as session:
@@ -387,22 +413,39 @@ def create_app(database_url: str | None = None, include_demo: bool = True,
                 raise HTTPException(status_code=404, detail="Рабочая техника не найдена")
             nodes = session.scalars(select(Node).where(Node.machine_id == machine_id).order_by(Node.number)).all()
             return [{"id": node.id, "number": node.number, "title": node.title,
-                     "purpose": node.purpose, "status": node.status} for node in nodes]
+                     "purpose": node.purpose, "status": node.status,
+                     "map_x": float(node.map_x) if node.map_x is not None else None,
+                     "map_y": float(node.map_y) if node.map_y is not None else None,
+                     "marker_photo_id": node.marker_photo_id} for node in nodes]
 
     @app.post("/api/admin/nodes", status_code=201)
     async def admin_create_node(body: NodeCreate):
+        if (body.map_x is None) != (body.map_y is None):
+            raise HTTPException(status_code=422, detail="Для отметки укажите обе координаты фото")
+        if body.marker_photo_id is not None and (body.map_x is None or body.map_y is None):
+            raise HTTPException(status_code=422, detail="Для узла на фото нужны координаты")
         with Session(app.state.engine) as session:
             machine = session.get(Machine, body.machine_id)
             if machine is None or machine.is_demo or machine.status == "archived":
                 raise HTTPException(status_code=404, detail="Рабочая техника не найдена")
+            marker_photo = None
+            if body.marker_photo_id is not None:
+                marker_photo = session.get(Photo, body.marker_photo_id)
+                if marker_photo is None or marker_photo.machine_id != body.machine_id:
+                    raise HTTPException(status_code=422, detail="Фото отметки не относится к этой технике")
             max_number = session.scalar(select(Node.number).where(Node.machine_id == body.machine_id)
                                         .order_by(Node.number.desc()).limit(1)) or 0
             node = Node(machine_id=body.machine_id, number=max_number + 1,
-                        title=body.title.strip(), purpose=body.purpose.strip(), status="review")
+                        title=body.title.strip(), purpose=body.purpose.strip(), status="review",
+                        map_x=body.map_x, map_y=body.map_y,
+                        marker_photo_id=marker_photo.id if marker_photo else None)
             session.add(node)
             session.commit()
             return {"id": node.id, "number": node.number, "title": node.title,
-                    "purpose": node.purpose, "status": node.status}
+                    "purpose": node.purpose, "status": node.status,
+                    "map_x": float(node.map_x) if node.map_x is not None else None,
+                    "map_y": float(node.map_y) if node.map_y is not None else None,
+                    "marker_photo_id": node.marker_photo_id}
 
     @app.get("/api/admin/documents")
     async def admin_documents(machine_id: int | None = Query(default=None, gt=0)):
@@ -707,6 +750,7 @@ def create_app(database_url: str | None = None, include_demo: bool = True,
         caption: str = Form(default="", max_length=300),
         node_id: int | None = Form(default=None, gt=0),
         sync_to_phones: bool = Form(default=False),
+        photo_kind: Literal["candidate", "machine_scheme"] = Form(default="candidate"),
     ):
         staging_dir = app.state.data_root / "staging"
         staged, sha256, size = await stage_upload(file, staging_dir, MAX_IMAGE_BYTES)
@@ -733,7 +777,7 @@ def create_app(database_url: str | None = None, include_demo: bool = True,
                     node = session.get(Node, node_id)
                     if node is None or node.machine_id != machine_id:
                         raise HTTPException(status_code=422, detail="Выбранный узел не относится к этой технике")
-                if sync_to_phones and node_id is None:
+                if sync_to_phones and node_id is None and photo_kind != "machine_scheme":
                     raise HTTPException(status_code=422, detail="Для передачи фото по LAN прикрепите его к узлу")
                 duplicate = session.scalar(select(Photo).where(Photo.machine_id == machine_id,
                                                                Photo.storage_path == relative.as_posix()))
@@ -741,7 +785,7 @@ def create_app(database_url: str | None = None, include_demo: bool = True,
                     raise HTTPException(status_code=409, detail="Это изображение уже загружено")
                 staged.replace(destination)
                 photo = Photo(machine_id=machine_id, node_id=node_id, storage_path=relative.as_posix(),
-                              caption=caption.strip(), photo_kind="node" if node_id else "candidate",
+                              caption=caption.strip(), photo_kind="node" if node_id else photo_kind,
                               usage_rights="internal_only", allow_training=False, published=False,
                               sync_to_phones=sync_to_phones)
                 session.add(photo)
@@ -768,8 +812,12 @@ def create_app(database_url: str | None = None, include_demo: bool = True,
             photo = session.get(Photo, photo_id)
             if photo is None:
                 raise HTTPException(status_code=404, detail="Изображение не найдено")
-            if body.enabled and (photo.usage_rights != "internal_only" or photo.node_id is None):
-                raise HTTPException(status_code=409, detail="LAN-sync включается только для внутреннего фото, прикреплённого к узлу")
+            marker_exists = session.scalar(select(Node.id).where(
+                Node.marker_photo_id == photo_id, Node.status == "published"
+            ).limit(1)) is not None
+            if body.enabled and (photo.usage_rights != "internal_only" or
+                                 (photo.node_id is None and (photo.photo_kind != "machine_scheme" or not marker_exists))):
+                raise HTTPException(status_code=409, detail="LAN-sync включается только для внутреннего фото с опубликованным узлом")
             photo.sync_to_phones = body.enabled
             session.commit()
             return {"id": photo.id, "sync_to_phones": photo.sync_to_phones}
@@ -789,13 +837,22 @@ def create_app(database_url: str | None = None, include_demo: bool = True,
     async def mobile_internal_media(photo_id: int):
         with Session(app.state.engine) as session:
             photo = session.get(Photo, photo_id)
-            if (photo is None or not photo.sync_to_phones or photo.usage_rights != "internal_only"
-                    or photo.node_id is None):
+            if photo is None or not photo.sync_to_phones or photo.usage_rights != "internal_only":
                 raise HTTPException(status_code=404, detail="Внутреннее изображение не разрешено для локальной синхронизации")
-            node = session.get(Node, photo.node_id)
             machine = session.get(Machine, photo.machine_id)
-            if node is None or node.status != "published" or machine is None or machine.status != "published":
+            if machine is None or machine.status != "published":
                 raise HTTPException(status_code=404, detail="Изображение доступно только в опубликованной карточке")
+            if photo.photo_kind == "machine_scheme":
+                published_marker = session.scalar(select(Node.id).where(
+                    Node.machine_id == photo.machine_id, Node.marker_photo_id == photo.id,
+                    Node.status == "published",
+                ).limit(1))
+                if published_marker is None:
+                    raise HTTPException(status_code=404, detail="Схема доступна только с опубликованной отметкой")
+            else:
+                node = session.get(Node, photo.node_id) if photo.node_id is not None else None
+                if node is None or node.status != "published":
+                    raise HTTPException(status_code=404, detail="Изображение доступно только в опубликованном узле")
             path = stored_file_path(app.state.data_root, photo.storage_path)
             if not path.is_file():
                 raise HTTPException(status_code=404, detail="Изображение отсутствует в локальном хранилище")

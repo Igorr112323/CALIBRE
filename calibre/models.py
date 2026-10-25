@@ -131,13 +131,14 @@ class Node(Base):
     status: Mapped[str] = mapped_column(String(24), default="ai_draft", nullable=False)
     map_x: Mapped[Decimal | None] = mapped_column(Numeric(7, 6))
     map_y: Mapped[Decimal | None] = mapped_column(Numeric(7, 6))
+    marker_photo_id: Mapped[int | None] = mapped_column(ForeignKey("photos.id", ondelete="SET NULL"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
 
     machine: Mapped[Machine] = relationship(back_populates="nodes")
     adjustments: Mapped[list["Adjustment"]] = relationship(back_populates="node", cascade="all, delete-orphan")
     mistakes: Mapped[list["CommonMistake"]] = relationship(back_populates="node", cascade="all, delete-orphan")
-    photos: Mapped[list["Photo"]] = relationship(back_populates="node")
+    photos: Mapped[list["Photo"]] = relationship(back_populates="node", foreign_keys="Photo.node_id")
     reviews: Mapped[list["DepartmentReview"]] = relationship(back_populates="node", cascade="all, delete-orphan")
     related_links: Mapped[list["NodeLink"]] = relationship(
         foreign_keys="NodeLink.node_id", back_populates="node", cascade="all, delete-orphan"
@@ -280,7 +281,7 @@ class Photo(Base):
     published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     sync_to_phones: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     machine: Mapped[Machine] = relationship(back_populates="photos")
-    node: Mapped[Node | None] = relationship(back_populates="photos")
+    node: Mapped[Node | None] = relationship(back_populates="photos", foreign_keys=[node_id])
 
 
 class Synonym(Base):

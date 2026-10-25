@@ -55,14 +55,17 @@
     </section>
 
     <section class="panel machine-create-panel" id="machine-create-panel" hidden>
-      <div class="panel-heading"><span class="step-number">＋</span><div><p class="eyebrow">НОВАЯ ТЕХНИКА</p><h2>Добавить машину</h2></div></div>
-      <p class="explanation">Создайте карточку сейчас, а руководство, узлы и фотографии добавьте позже. Данные хранятся на ПК-сервере.</p>
-      <form id="machine-create-form" class="card-form">
-        <label class="field"><span>Марка</span><input name="manufacturer" required maxlength="160" value="Kolibri"></label>
-        <label class="field"><span>Модель</span><input name="model" required maxlength="160" placeholder="Например, ГРН-471"></label>
-        <label class="field"><span>Тип техники</span><input name="machine_type" required maxlength="160" value="Сельскохозяйственная техника"></label>
-        <label class="field field-wide"><span>Описание <small>необязательно</small></span><textarea name="description" rows="2" maxlength="4000" placeholder="Краткое описание машины"></textarea></label>
-        <div class="form-actions"><span class="status" id="machine-create-status" role="status" aria-live="polite"></span><div><button class="button button-secondary" id="cancel-machine-create" type="button">Отмена</button> <button class="button button-primary" type="submit">Создать машину</button></div></div>
+      <div class="panel-heading"><span class="step-number">＋</span><div><p class="eyebrow">НОВАЯ ТЕХНИКА</p><h2>Создать карточку</h2></div></div>
+      <p class="explanation">Введите название, добавьте фото и при необходимости руководство. Нажмите на фото, чтобы поставить пронумерованные отметки, и подпишите каждый узел. Карточка останется черновиком, пока вы не опубликуете её.</p>
+      <form id="machine-create-form" class="guided-create-form">
+        <label class="field"><span>Название машины</span><input name="model" required maxlength="160" placeholder="Например, ГРН-471"></label>
+        <div class="guided-photo-upload">
+          <label class="field"><span>Фотографии машины</span><input id="new-machine-photos" name="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label>
+          <small>JPG, PNG или WebP. Нажимайте на фото, чтобы расставить кружки; для каждой отметки можно указать название узла.</small>
+          <div id="new-machine-photo-previews" class="guided-photo-previews"></div>
+        </div>
+        <label class="field guided-pdf-field"><span>Руководство PDF <small>необязательно</small></span><input id="new-machine-pdf" name="manual" type="file" accept="application/pdf,.pdf"><small>PDF останется на этом ПК. После сохранения карточки начнётся локальная обработка.</small></label>
+        <div class="form-actions"><span class="status" id="machine-create-status" role="status" aria-live="polite"></span><div><button class="button button-secondary" id="cancel-machine-create" type="button">Отмена</button> <button class="button button-primary" type="submit">Сделать карточку</button></div></div>
       </form>
     </section>
 
@@ -80,6 +83,10 @@
 
     <section class="panel machine-panel" id="machine-panel" hidden>
       <div class="panel-heading"><span class="step-number">2</span><div><p class="eyebrow">ТЕХНИКА В БАЗЕ</p><h2>Карточка машины</h2></div><span class="saved-badge" id="manual-state">PDF не загружен</span></div>
+      <div class="publication-review" id="publication-review">
+        <label><input id="machine-publish-toggle" type="checkbox"><span>Проверено — опубликовать карточку</span></label>
+        <p id="publication-state" role="status">Черновик: карточка видна в каталоге админки серой, но не передаётся в APK.</p>
+      </div>
       <form id="card-form" class="card-form">
         <label class="field"><span>Марка</span><input name="manufacturer" value="Kolibri" required maxlength="160"></label>
         <label class="field"><span>Модель</span><input name="model" required maxlength="160"></label>

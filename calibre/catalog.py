@@ -51,6 +51,7 @@ def _public_norm(norm):
 
 def serialize_machine(machine: Machine) -> dict:
     nodes = []
+    machine_photos = {photo.id: photo for photo in machine.photos}
     published_node_ids = {node.id for node in machine.nodes if node.status == "published"}
     for node in machine.nodes:
         if node.status != "published":
@@ -72,6 +73,10 @@ def serialize_machine(machine: Machine) -> dict:
                 "norms": norms,
                 "department_checked": any(review.verdict in {"confirmed", "corrected"} for review in adjustment.reviews),
             })
+        node_photos = list(node.photos)
+        marker_photo = machine_photos.get(node.marker_photo_id)
+        if marker_photo is not None and marker_photo not in node_photos:
+            node_photos.append(marker_photo)
         nodes.append({
             "id": node.id,
             "number": node.number,
@@ -98,7 +103,7 @@ def serialize_machine(machine: Machine) -> dict:
                     "internal_lan_only": photo.usage_rights == "internal_only",
                     "url": f"/media/{photo.id}" if photo.sync_to_phones and photo.usage_rights == "internal_only" else None,
                 }
-                for photo in node.photos
+                for photo in node_photos
                 if (photo.published and photo.usage_rights in PUBLIC_PHOTO_RIGHTS)
                 or (photo.sync_to_phones and photo.usage_rights == "internal_only")
             ],
@@ -180,6 +185,7 @@ def mobile_catalog(session: Session) -> dict:
         .where(Machine.status == "published")
         .options(
             selectinload(Machine.characteristics),
+            selectinload(Machine.photos),
             selectinload(Machine.nodes).selectinload(Node.adjustments).selectinload(Adjustment.norms),
             selectinload(Machine.nodes).selectinload(Node.adjustments).selectinload(Adjustment.reviews),
             selectinload(Machine.nodes).selectinload(Node.mistakes),

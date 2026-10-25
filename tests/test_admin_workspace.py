@@ -7,6 +7,7 @@ from pathlib import Path
 
 import httpx
 from PIL import Image
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from calibre.models import Machine, Node, Photo
@@ -30,6 +31,58 @@ class SimpleAdminWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         await self.client.aclose()
         self.app.state.engine.dispose()
         self.temp_dir.cleanup()
+
+    async def test_photo_markers_remain_draft_until_owner_publishes_machine(self):
+        created = await self.client.post("/api/admin/machines", json={
+            "code": "KOLIBRI-MARKED", "manufacturer": "Kolibri", "model": "Маркированная машина",
+            "machine_type": "Сельхозтехника", "description": "",
+        })
+        self.assertEqual(created.status_code, 201, created.text)
+        machine_id = created.json()["id"]
+        image = io.BytesIO()
+        Image.new("RGB", (32, 24), color=(45, 90, 45)).save(image, format="PNG")
+        image.seek(0)
+        uploaded = await self.client.post("/api/admin/media", data={
+            "machine_id": str(machine_id), "caption": "Общий вид", "photo_kind": "machine_scheme",
+            "sync_to_phones": "true",
+        }, files={"file": ("machine.png", image, "image/png")})
+        self.assertEqual(uploaded.status_code, 201, uploaded.text)
+        photo_id = uploaded.json()["id"]
+
+        marker = await self.client.post("/api/admin/nodes", json={
+            "machine_id": machine_id, "title": "Опорное колесо", "purpose": "",
+            "map_x": 0.27, "map_y": 0.64, "marker_photo_id": photo_id,
+        })
+        self.assertEqual(marker.status_code, 201, marker.text)
+        unmarked = await self.client.post("/api/admin/nodes", json={
+            "machine_id": machine_id, "title": "Непроверенный узел", "purpose": "",
+        })
+        self.assertEqual(unmarked.status_code, 201, unmarked.text)
+        self.assertEqual((await self.client.get("/api/mobile/catalog")).json()["real_machines"], [])
+
+        listing = await self.client.get("/api/admin/nodes", params={"machine_id": machine_id})
+        self.assertEqual(listing.json()[0]["marker_photo_id"], photo_id)
+        self.assertAlmostEqual(listing.json()[0]["map_x"], 0.27, places=5)
+        published = await self.client.put(f"/api/admin/machines/{machine_id}/publication", json={"published": True})
+        self.assertEqual(published.status_code, 200, published.text)
+        self.assertEqual(published.json()["status"], "published")
+        with Session(self.app.state.engine) as session:
+            nodes = session.scalars(select(Node).where(Node.machine_id == machine_id).order_by(Node.number)).all()
+            self.assertEqual(nodes[0].status, "published")
+            self.assertEqual(nodes[1].status, "review")
+        mobile = (await self.client.get("/api/mobile/catalog")).json()["real_machines"]
+        self.assertEqual(len(mobile), 1)
+        self.assertEqual(mobile[0]["nodes"][0]["map"], {"x": 0.27, "y": 0.64})
+        self.assertEqual(mobile[0]["nodes"][0]["photos"][0]["url"], f"/media/{photo_id}")
+        self.assertTrue(mobile[0]["nodes"][0]["photos"][0]["internal_lan_only"])
+        mobile_photo = await self.client.get(f"/api/mobile/media/{photo_id}")
+        self.assertEqual(mobile_photo.status_code, 200, mobile_photo.text)
+        self.assertEqual(mobile_photo.headers["content-type"], "image/jpeg")
+
+        unpublished = await self.client.put(f"/api/admin/machines/{machine_id}/publication", json={"published": False})
+        self.assertEqual(unpublished.status_code, 200, unpublished.text)
+        self.assertEqual(unpublished.json()["status"], "draft")
+        self.assertEqual((await self.client.get("/api/mobile/catalog")).json()["real_machines"], [])
 
     async def test_machine_card_nodes_and_node_photo_flow(self):
         created = await self.client.post("/api/admin/machines", json={
