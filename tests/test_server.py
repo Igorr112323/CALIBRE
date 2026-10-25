@@ -75,14 +75,16 @@ class ServerStageTwoTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await network.get("/preview/")).status_code, 403)
             self.assertEqual((await network.get("/preview/assets/missing.js")).status_code, 403)
 
-    async def test_local_pdf_viewer_uses_browser_native_reader_without_vendor_cdn(self):
+    async def test_local_pdf_viewer_renders_and_highlights_page_without_vendor_cdn(self):
         viewer = await self.client.get("/admin/static/admin/pdf-viewer.html")
         script = await self.client.get("/admin/static/admin/pdf-viewer.js")
         self.assertEqual(viewer.status_code, 200)
         self.assertIn("pdf-viewer.js", viewer.text)
+        self.assertIn("page-image", viewer.text)
         self.assertNotIn("https://", viewer.text)
         self.assertEqual(script.status_code, 200)
         self.assertIn("локальной базы Kolibri", script.text)
+        self.assertIn("/page/${page}/image", script.text)
         self.assertNotIn("pdf.min.mjs", script.text)
 
     async def test_network_client_is_denied_admin_but_can_ping(self):
@@ -118,22 +120,31 @@ class ServerStageTwoTests(unittest.IsolatedAsyncioTestCase):
         payload = first.json()
         self.assertTrue(payload["changed"])
         self.assertEqual(len(payload["catalog"]["demo_machines"]), 1)
-        self.assertEqual(len(payload["catalog"]["demo_machines"][0]["nodes"]), 7)
-        self.assertEqual(len(payload["catalog"]["demo_machines"][0]["problems"]), 5)
+        demo = payload["catalog"]["demo_machines"][0]
+        self.assertEqual(demo["model"], "ГРН-471 Kolibri (демо)")
+        self.assertEqual(len(demo["nodes"]), 12)
+        self.assertEqual(len(demo["problems"]), 6)
+        self.assertEqual(sum(len(adjustment["norms"]) for node in demo["nodes"] for adjustment in node["adjustments"]), 59)
         second = await self.client.get("/api/mobile/sync", params={"revision": payload["revision"]})
         self.assertEqual(second.status_code, 200)
         self.assertFalse(second.json()["changed"])
         self.assertIsNone(second.json()["catalog"])
 
-    async def test_demo_catalog_labels_every_sample_and_contains_no_manual_values(self):
+    async def test_demo_catalog_is_grounded_and_marks_auto_verification(self):
         payload = (await self.client.get("/api/mobile/catalog")).json()
         demo = payload["demo_machines"][0]
-        self.assertIn("ДЕМО", demo["label"])
-        self.assertEqual(demo["characteristics"][0]["value"], "ДЕМО")
-        self.assertTrue(all("ДЕМО" in node["title"] or "ДЕМО" in node["purpose"] or "ДЕМО" in demo["description"] for node in demo["nodes"]))
-        encoded = json.dumps(demo, ensure_ascii=False)
-        for unverified_value in ("485", "200–300", "0,12–0,55", "15 км/ч", "30 км/ч"):
-            self.assertNotIn(unverified_value, encoded)
+        self.assertEqual(demo["model"], "ГРН-471 Kolibri (демо)")
+        self.assertIn("автопроверено", demo["label"])
+        self.assertIn("человеком не сверено", demo["label"])
+        self.assertEqual(len(demo["nodes"]), 12)
+        self.assertEqual(len(demo["problems"]), 6)
+        norms = [norm for node in demo["nodes"] for adj in node["adjustments"] for norm in adj["norms"]]
+        self.assertEqual(len(norms), 59)
+        self.assertTrue(all(norm["auto_verified"] and not norm["human_verified"] for norm in norms))
+        self.assertTrue(all(norm["source"]["page_start"] and norm["source"]["quote"] for norm in norms))
+        self.assertTrue(all(node["source_page"] and node["source_quote"] for node in demo["nodes"]))
+        self.assertTrue(any("абсолютное" in item["value"].casefold() for item in demo["characteristics"] if "не указано" in item["label"].casefold()))
+        self.assertFalse(any("DEMO-ONLY" in str(item) for item in demo["nodes"]))
 
     async def test_phone_can_submit_only_intended_feedback_and_question(self):
         catalog = (await self.client.get("/api/mobile/catalog")).json()
@@ -196,7 +207,7 @@ class ServerStageTwoTests(unittest.IsolatedAsyncioTestCase):
         payload = response.json()
         self.assertEqual(len(payload["demo_machines"]), 1)
         self.assertTrue(payload["demo_machines"][0]["is_demo"])
-        self.assertIn("ДЕМО", payload["demo_machines"][0]["label"])
+        self.assertIn("автопроверено", payload["demo_machines"][0]["label"])
         self.assertEqual([m["code"] for m in payload["real_machines"]], ["CLAAS-TEST"])
         real = payload["real_machines"][0]
         self.assertEqual([n["title"] for n in real["nodes"]], ["Опубликованный узел"])
@@ -205,7 +216,7 @@ class ServerStageTwoTests(unittest.IsolatedAsyncioTestCase):
         serialized = json.dumps(payload, ensure_ascii=False)
         self.assertNotIn("СЕКРЕТНЫЙ ЧЕРНОВИК", serialized)
         self.assertNotIn("DRAFT-ONLY", serialized)
-        self.assertNotIn('"value": "250"', serialized)
+        self.assertNotIn('"value": "250"', json.dumps(real, ensure_ascii=False))
 
 
 if __name__ == "__main__":

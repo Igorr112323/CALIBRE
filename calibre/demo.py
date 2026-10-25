@@ -1,5 +1,9 @@
-"""Clearly-marked, non-instructional sample content for UI demonstrations only."""
+"""Seed the explicit, source-cited GRN-471 Kolibri demo slice."""
 from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,113 +16,148 @@ from calibre.models import (
     MachineCharacteristic,
     Node,
     NodeLink,
+    Norm,
     Problem,
     ProblemStep,
 )
 
-DEMO_MACHINE_CODE = "DEMO-ONLY-01"
-DEMO_SEED_VERSION = "3"
+DEMO_MACHINE_CODE = "GRN-471-KOLIBRI-V4-DEMO"
+DEMO_SEED_VERSION = "4"
 
-NODE_DEMOS = [
-    ("height", 1, 0.70, 0.82, "Высота среза и положение аппарата", "ДЕМО-описание: карточка показывает место для проверенных сведений."),
-    ("balance", 2, 0.83, 0.60, "Механизм уравновешивания", "ДЕМО-описание: никаких значений или действий для реальной машины."),
-    ("hitch", 3, 0.15, 0.48, "Навеска на трактор", "ДЕМО-описание: конкретные требования появятся только из проверенного источника."),
-    ("belts", 4, 0.42, 0.28, "Клиноременная передача", "ДЕМО-описание: не является инструкцией по натяжению или проверке ремней."),
-    ("gear", 5, 0.57, 0.60, "Редуктор режущего аппарата", "ДЕМО-описание: не использовать как руководство к обслуживанию."),
-    ("safety", 6, 0.32, 0.70, "Предохранительное устройство", "ДЕМО-описание: порядок проверки не задан."),
-    ("transport", 7, 0.27, 0.18, "Транспортная фиксация", "ДЕМО-описание: порядок подготовки не задан."),
-]
 
-NODE_ADJUSTMENTS = {
-    "height": ("Положение аппарата — ДЕМО", "ДЕМО: шаги появятся после проверки паспорта и допуска специалиста."),
-    "balance": ("Уравновешивание — ДЕМО", "ДЕМО: не регулируйте пружины по этой карточке."),
-    "hitch": ("Положение навески — ДЕМО", "ДЕМО: сведения о совместимости пока не подтверждены."),
-    "belts": ("Состояние передачи — ДЕМО", "ДЕМО: инструкция отсутствует до проверки источника."),
-    "gear": ("Проверка редуктора — ДЕМО", "ДЕМО: не разбирайте узел по этому примеру."),
-    "safety": ("Предохранительное устройство — ДЕМО", "ДЕМО: параметры и процедура проверки отсутствуют."),
-    "transport": ("Подготовка к перевозке — ДЕМО", "ДЕМО: используйте документацию изготовителя, не этот макет."),
-}
+def demo_data_path() -> Path:
+    bundle_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+    return bundle_root / "web" / "app" / "grn471-demo.json"
 
-PROBLEM_DEMOS = [
-    ("Высокая или неровная стерня — ДЕМО", "ДЕМО-симптом. Текст нужен только для проверки интерфейса."),
-    ("Аппарат касается грунта — ДЕМО", "ДЕМО-симптом. Это не диагностика реальной неисправности."),
-    ("Шум в передаче — ДЕМО", "ДЕМО-симптом. Причины и порядок проверки не подтверждены."),
-    ("Нагрев редуктора — ДЕМО", "ДЕМО-симптом. Не является советом по эксплуатации."),
-    ("Срабатывает защита — ДЕМО", "ДЕМО-симптом. Остановите работу и обратитесь к проверенному руководству."),
-]
+
+def load_demo_data() -> dict:
+    data = json.loads(demo_data_path().read_text(encoding="utf-8"))
+    if data.get("machine", {}).get("code") != DEMO_MACHINE_CODE or data.get("auto_checked_norm_count") != 59:
+        raise RuntimeError("GRN-471 demo catalog failed its packaged-data integrity check")
+    return data
 
 
 def seed_demo_data(session: Session) -> None:
-    """Create or refresh the one isolated demo machine; never touch real records."""
+    """Create/refresh only the isolated demonstration record, never real machines."""
     setting = session.get(AppSetting, "demo_seed_version")
-    if setting and setting.value == DEMO_SEED_VERSION:
-        return
     existing = session.scalar(select(Machine).where(Machine.code == DEMO_MACHINE_CODE))
+    legacy = session.scalar(select(Machine).where(Machine.code == "DEMO-ONLY-01"))
+    if setting and setting.value == DEMO_SEED_VERSION and existing is not None:
+        if legacy is not None:
+            session.delete(legacy)
+            session.commit()
+        return
     if existing is not None:
         session.delete(existing)
         session.flush()
+    if legacy is not None:
+        session.delete(legacy)
+        session.flush()
 
-    demo = Machine(
+    data = load_demo_data()
+    machine_data = data["machine"]
+    machine = Machine(
         code=DEMO_MACHINE_CODE,
-        manufacturer="ДЕМО",
-        model="Учебный образец",
-        machine_type="Демонстрационные данные",
-        description="ДЕМО — вымышленные данные только для проверки интерфейса. Не применять на технике.",
-        tractor_requirements="ДЕМО — требования не заданы.",
+        manufacturer=machine_data["manufacturer"],
+        model=machine_data["model"],
+        machine_type=machine_data["machine_type"],
+        description=machine_data["description"],
+        tractor_requirements=machine_data["tractor_requirements"],
         status="published",
         version=int(DEMO_SEED_VERSION),
         is_demo=True,
     )
-    demo.characteristics.extend([
-        MachineCharacteristic(label="Тип машины", display_value="ДЕМО", status="published"),
-        MachineCharacteristic(label="Совместимость", display_value="ДЕМО", status="published"),
-        MachineCharacteristic(label="Технические значения", display_value="ДЕМО", status="published"),
-    ])
-    nodes_by_key: dict[str, Node] = {}
-    for key, number, map_x, map_y, title, purpose in NODE_DEMOS:
-        node = Node(number=number, title=title, purpose=purpose, status="published", map_x=map_x, map_y=map_y)
-        adjustment_title, instruction = NODE_ADJUSTMENTS[key]
-        node.adjustments.append(Adjustment(
-            title=adjustment_title,
-            instructions=[instruction],
-            tool="ДЕМО",
-            status="published",
-        ))
-        node.mistakes.append(CommonMistake(
-            description="ДЕМО: пример типичного замечания.",
-            consequence="Это не сведения о реальной машине.",
-        ))
-        nodes_by_key[key] = node
-        demo.nodes.append(node)
 
-    for source, targets in {
-        "height": ("balance", "hitch"),
-        "balance": ("hitch", "height"),
-        "hitch": ("balance",),
-        "belts": ("gear",),
-        "gear": ("belts",),
-        "safety": ("balance",),
-    }.items():
-        for target in targets:
-            nodes_by_key[source].related_links.append(NodeLink(
-                related_node=nodes_by_key[target], relation_label="Связанный пример ДЕМО"
+    node_by_key: dict[str, Node] = {}
+    for item in data["nodes"]:
+        map_point = item.get("map") or {}
+        node = Node(
+            number=item["number"], title=item["title"], purpose=item["purpose"],
+            source_page=item.get("page"), source_quote=item.get("quote"),
+            status="published", map_x=map_point.get("x"), map_y=map_point.get("y"),
+        )
+        node_by_key[item["key"]] = node
+        machine.nodes.append(node)
+
+    # The section-6 procedures are evidence-bearing content; each printed page
+    # stays attached to its physical component rather than becoming a new screen.
+    adjustments_by_node: dict[str, Adjustment] = {}
+    for index, item in enumerate(data["adjustments"], start=1):
+        node = node_by_key[item["node_key"]]
+        steps = [str(step) for step in item.get("instructions", [])]
+        if item.get("pages"):
+            steps.append("Источник: руководство по эксплуатации, стр. " + ", ".join(map(str, item["pages"])) + ".")
+        if item.get("safety_pages"):
+            steps.append("Ограничения безопасности: руководство, стр. " + ", ".join(map(str, item["safety_pages"])) + ".")
+        node.adjustments.append(Adjustment(
+            title=item["title"], instructions=steps, tool="", status="published",
+        ))
+
+    # Each numeric fact is stored once as a Norm. The public catalog derives its
+    # characteristics table from these same rows; there are no hand-copied values.
+    grouped: dict[str, list[dict]] = {}
+    for fact in data["norms"]:
+        grouped.setdefault(fact["node_key"], []).append(fact)
+    for key, facts in grouped.items():
+        adjustment = Adjustment(
+            title="Числовые нормы и значения из руководства",
+            instructions=[], tool="", status="published",
+        )
+        node_by_key[key].adjustments.append(adjustment)
+        for fact in facts:
+            adjustment.norms.append(Norm(
+                name=fact["name"], condition=fact.get("condition", ""),
+                verification_note=fact.get("verification_note", ""),
+                value_original=fact["value"], unit_original=fact.get("unit") or None,
+                source_kind="packaged_demo", source_document_id=None,
+                source_page_start=fact["page"], source_page_end=fact["page"],
+                source_quote=fact["quote"], review_status="auto_verified",
             ))
 
-    problem_steps = [
-        [("ДЕМО: откройте карточку примера.", "height"), ("ДЕМО: проверьте раздел со статусом источника.", "hitch")],
-        [("ДЕМО: сравните подпись со статусом карточки.", "balance"), ("ДЕМО: технические действия не заданы.", None)],
-        [("ДЕМО: откройте демонстрационную карточку передачи.", "belts"), ("ДЕМО: порядок диагностики не задан.", "gear")],
-        [("ДЕМО: подтверждённые значения отсутствуют.", "gear")],
-        [("ДЕМО: прекратите работу и сверяйтесь с документацией изготовителя.", "safety")],
-    ]
-    for (title, symptom), steps in zip(PROBLEM_DEMOS, problem_steps):
-        problem = Problem(title=title, symptom=symptom, status="published")
-        problem.steps.extend([
-            ProblemStep(step_number=index, instruction=text, linked_node=nodes_by_key.get(link) if link else None)
-            for index, (text, link) in enumerate(steps, start=1)
-        ])
-        demo.problems.append(problem)
+    # General facts, maintenance, safety and documented gaps stay visible in the
+    # existing machine-characteristics panel and remain searchable offline.
+    for group_name, entries in (
+        ("Из руководства", data.get("general_facts", [])),
+        ("Обслуживание", data.get("maintenance", [])),
+        ("Ограничение безопасности", data.get("safety_warnings", [])),
+        ("Не указано в документе", data.get("document_gaps", [])),
+    ):
+        for entry in entries:
+            page = entry.get("page")
+            label = f"{group_name}: {entry['label']}" + (f" · стр. {page}" if page else "")
+            machine.characteristics.append(MachineCharacteristic(
+                label=label,
+                display_value=entry["value"],
+                source_page=page,
+                source_quote=None if entry.get("human_visual_only") else entry.get("quote"),
+                auto_verified=bool(entry.get("quote")) and not entry.get("human_visual_only"),
+                human_verification_required=bool(entry.get("human_visual_only") or entry.get("human_review_required")),
+                status="published",
+            ))
 
-    session.add(demo)
+    for item in data["nodes"]:
+        if item.get("related_keys"):
+            node = node_by_key[item["key"]]
+            for target in item["related_keys"]:
+                if target in node_by_key:
+                    node.related_links.append(NodeLink(related_node=node_by_key[target], relation_label="Связанный узел"))
+
+    for item in data["problems"]:
+        problem = Problem(
+            title=item["title"], symptom=(
+                f"Проявление: {item['symptom']}\nВероятная причина: {item['cause']}"
+            ),
+            source_page=item["page"],
+            source_quote="\n".join(f"«{quote}»" for quote in item["quotes"]),
+            status="published",
+        )
+        problem.steps.extend([
+            ProblemStep(step_number=1, instruction=item["remedy"],
+                        source_page=item["page"], source_quote=item["quotes"][2],
+                        linked_node=node_by_key.get(item.get("linked_node_key"))),
+        ])
+        machine.problems.append(problem)
+
+    session.add(machine)
     session.merge(AppSetting(key="demo_seed_version", value=DEMO_SEED_VERSION))
     session.commit()

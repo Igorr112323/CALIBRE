@@ -18,28 +18,22 @@ class MobileAppStageThreeTests(unittest.TestCase):
         self.assertNotIn('renderSettings', app)
         self.assertNotIn('renderStatus', app)
 
-    def test_mobile_has_two_populated_machine_cards_and_no_fake_data_label(self):
+    def test_mobile_uses_only_prefilled_grn471_demo_content_in_frozen_shell(self):
         app = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
         html = (ROOT / "web/app/index.html").read_text(encoding="utf-8")
         css = (ROOT / "web/app/app.css").read_text(encoding="utf-8")
-        self.assertIn("model: 'МТЗ-82.1'", app)
-        self.assertIn("model: 'Кировец К-700А'", app)
-        self.assertIn("title: 'Двигатель'", app)
-        self.assertIn("title: 'Трансмиссия'", app)
-        self.assertIn("title: 'Гидросистема'", app)
-        self.assertIn("title: 'Двигатель не запускается'", app)
-        self.assertIn("title: 'Рабочее оборудование не реагирует'", app)
-        self.assertIn("machine-overview", app)
-        self.assertNotIn("Машина 1", app)
-        self.assertNotIn("Машина 2", app)
+        data = (ROOT / "web/app/grn471-demo.json").read_text(encoding="utf-8")
+        self.assertIn("./grn471-demo.json", app)
+        self.assertIn("ГРН-471 Kolibri (демо)", data)
+        self.assertIn("59", data)
+        self.assertIn("auto_verified", app)
+        self.assertIn("renderScheme", app)
+        self.assertIn('class="scheme"', app)
+        self.assertNotIn("TEST_MACHINES", app)
+        self.assertNotIn("МТЗ-82.1", app)
+        self.assertNotIn("Кировец К-700А", app)
         self.assertNotIn("СИНТЕТИЧЕСКИЕ ДАННЫЕ", app)
-        self.assertNotIn("ДЕМО", app)
-        self.assertNotIn("demo", app.lower())
         self.assertNotIn(" · офлайн", html)
-        self.assertNotIn(" · офлайн", app)
-        self.assertNotIn("Поиск работает по сохранённым карточкам", app)
-        self.assertNotIn("Перед настройкой сверяйтесь", app)
-        self.assertNotIn("Хранилище:", app)
         self.assertNotIn(".status-strip", css)
         self.assertNotIn(".notice", css)
 
@@ -95,7 +89,7 @@ class MobileAppStageThreeTests(unittest.TestCase):
         self.assertIn("create_app(enable_preview=False)", launcher)
         self.assertIn("LOCALAPPDATA", launcher)
         self.assertIn("--onefile", workflow)
-        self.assertIn("CALIBRE-PC.exe", workflow)
+        self.assertIn("Kolibri-GRN-471-demo.exe", workflow)
         self.assertIn("--self-test", workflow)
         self.assertIn("--self-test", launcher)
         self.assertTrue((ROOT / "licenses" / "PyInstaller-COPYING.txt").is_file())
@@ -105,14 +99,27 @@ class MobileAppStageThreeTests(unittest.TestCase):
         manifest = (ROOT / "mobile/android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
         batch = (ROOT / "build_apk.bat").read_text(encoding="utf-8")
         self.assertIn('android:usesCleartextTraffic="true"', manifest)
-        self.assertIn("dist\\CALIBRE-debug.apk", batch)
+        self.assertIn("dist\\Kolibri-GRN-471-demo.apk", batch)
         self.assertIn("assembleDebug", batch)
 
-    def test_demo_seed_contains_only_explicit_non_instructional_placeholders(self):
+    def test_internal_lan_photos_are_cached_without_a_new_mobile_screen(self):
+        app = (ROOT / "web/app/app.js").read_text(encoding="utf-8")
+        server = (ROOT / "server.py").read_text(encoding="utf-8")
+        self.assertIn("async function syncInternalMedia()", app)
+        self.assertIn("mediaCache", app)
+        self.assertIn("/api/mobile/media/{photo_id}", server)
+        self.assertIn("X-Calibre-Internal-LAN", server)
+        self.assertNotIn("screen: 'chat'", app)
+
+    def test_demo_seed_uses_cited_packaged_content_without_pdf_assets(self):
         seed = (ROOT / "calibre/demo.py").read_text(encoding="utf-8")
-        self.assertIn("ДЕМО", seed)
-        for unsafe_sample in ("485 мм", "200–300 Н", "700–900 Н", "0,12–0,55 мм", "15 км/ч", "30 км/ч"):
-            self.assertNotIn(unsafe_sample, seed)
+        data = (ROOT / "web/app/grn471-demo.json").read_text(encoding="utf-8")
+        self.assertIn("GRN-471-KOLIBRI-V4-DEMO", seed)
+        self.assertIn("packaged_demo", seed)
+        self.assertIn("59", data)
+        self.assertIn("auto_verified", (ROOT / "calibre/models.py").read_text(encoding="utf-8"))
+        self.assertNotIn("DEMO-ONLY-01", data)
+        self.assertFalse((ROOT / "web/app/GRN-471-Kolibri-v4.pdf").exists())
 
 
 if __name__ == "__main__":

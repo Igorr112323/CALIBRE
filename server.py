@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
+from datetime import datetime
+import io
 import json
 import os
 import re
 import socket
+import unicodedata
 import uuid
 from pathlib import Path
 from typing import Literal
@@ -15,22 +18,28 @@ import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from calibre.assistant import generate_grounded_answer, model_status
+from calibre.assistant import _part_lookup_response
 from calibre.diagnostics import (diagnostic_answer, exact_manual_for_machine,
                                  is_diagnostic_question, match_manual_diagnosis)
 from calibre.catalog import mobile_catalog
 from calibre.database import DATA_ROOT, initialize_database, make_engine
-from calibre.knowledge import is_parts_query, search_pages, search_part_graph, validate_document_scope
+from calibre.document_ai import (analysis_payload, enqueue_analysis, recover_analysis_jobs,
+                                 _verify_record)
+from calibre.knowledge import EvidenceHit, is_parts_query, normalize, search_pages, search_part_graph, validate_document_scope
+from calibre.local_rag import generate_local_answer
+from calibre.ollama_local import (cosine_similarity, embeddings, model_settings, ollama_status,
+                                 save_model_settings, start_model_download)
 from calibre.part_graph import CATALOG_SHA256, build_part_graph
-from calibre.models import (Adjustment, AppSetting, DocumentPage, ExpertQuestion, Feedback, Machine,
-                            Node, Norm, Photo, Problem, SourceDocument)
+from calibre.models import (Adjustment, AnalysisRun, AppSetting, DocumentPage, ExpertQuestion,
+                            Feedback, Machine, MachineCharacteristic, Node, Norm, Photo,
+                            Problem, ProblemStep, SourceDocument)
 
 ROOT = Path(__file__).resolve().parent
 WEB_ROOT = ROOT / "web"
@@ -77,6 +86,32 @@ class NodeCreate(BaseModel):
 class AssistantRequest(BaseModel):
     machine_id: int = Field(gt=0)
     question: str = Field(min_length=1, max_length=2000)
+
+
+class OllamaSettingsRequest(BaseModel):
+    chat_model: str = Field(min_length=1, max_length=120)
+    search_model: str = Field(min_length=1, max_length=120)
+
+
+class OllamaDownloadRequest(BaseModel):
+    profile: Literal["chat", "search"]
+
+
+class AnalysisReviewRequest(BaseModel):
+    claim_index: int = Field(ge=0)
+    action: Literal["verify", "reject", "edit"]
+    reviewer: str = Field(default="", max_length=240)
+    reason: str = Field(default="", max_length=1000)
+    changes: dict = Field(default_factory=dict)
+
+
+class AnalysisPublishRequest(BaseModel):
+    mode: Literal["auto_verified", "human_verified"]
+    reviewer: str = Field(default="", max_length=240)
+
+
+class PhotoSyncRequest(BaseModel):
+    enabled: bool
 
 
 MAX_PDF_BYTES = 100 * 1024 * 1024
@@ -161,6 +196,8 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
     app.state.engine = engine
     app.state.session_factory = sessions
     app.state.data_root = Path(storage_root).resolve() if storage_root is not None else DATA_ROOT.resolve()
+    if enable_preview:
+        recover_analysis_jobs(app)
 
     @app.middleware("http")
     async def local_admin_and_write_guard(request, call_next):
@@ -175,6 +212,15 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
                 "ok": False,
                 "message": "Админка, документы и ИИ-предпросмотр доступны только на компьютере-сервере",
             })
+        if remote and path.startswith("/api/mobile/media/"):
+            try:
+                lan_client = ipaddress.ip_address(request.client.host if request.client else "").is_private
+            except ValueError:
+                lan_client = False
+            if not lan_client:
+                return JSONResponse(status_code=403, content={
+                    "ok": False, "message": "Внутренние фото доступны только в локальной сети",
+                })
         phone_submission = request.method == "POST" and path in {
             "/api/mobile/feedback", "/api/mobile/questions"
         }
@@ -217,6 +263,65 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
             return {}
         return value if isinstance(value, dict) else {}
 
+    def semantic_manual_hits(session: Session, machine_id: int, question: str, search_model: str) -> list[EvidenceHit]:
+        """Use only local guide-page vectors; catalog pages never enter norm retrieval."""
+        runs = session.scalars(select(AnalysisRun).where(
+            AnalysisRun.machine_id == machine_id,
+            AnalysisRun.source_document_id.is_not(None),
+        ).order_by(AnalysisRun.started_at.desc())).all()
+        indexes = []
+        for run in runs:
+            setting = session.get(AppSetting, f"document_embeddings:{run.id}")
+            if not setting:
+                continue
+            try:
+                index = json.loads(setting.value)
+                if index.get("model") != search_model:
+                    continue
+                indexes.append((run, index))
+            except (TypeError, json.JSONDecodeError):
+                continue
+        if not indexes:
+            return []
+        try:
+            query_vector = embeddings(search_model, [question], timeout=90.0)[0]
+        except Exception:
+            return []
+        ranked = []
+        for run, index in indexes:
+            document = session.get(SourceDocument, run.source_document_id)
+            if not document:
+                continue
+            page_numbers = index.get("pages", [])
+            vectors = index.get("vectors", [])
+            for page_number, vector in zip(page_numbers, vectors):
+                score = cosine_similarity(query_vector, vector)
+                if score <= 0:
+                    continue
+                page = session.scalar(select(DocumentPage).where(
+                    DocumentPage.source_document_id == document.id,
+                    DocumentPage.page_number == int(page_number),
+                ))
+                if page is None or not page.extracted_text.strip():
+                    continue
+                scope = document_scope(session, document.id)
+                start_page = scope.get("guide_start_page")
+                end_page = scope.get("guide_end_page")
+                if isinstance(start_page, int) and page.page_number < start_page:
+                    continue
+                if isinstance(end_page, int) and page.page_number > end_page:
+                    continue
+                ranked.append(EvidenceHit(
+                    document_id=document.id, document_title=document.title,
+                    filename=document.original_filename, page=page.page_number,
+                    score=score * 2.5, coverage=score,
+                    text=page.extracted_text, section="manual",
+                    extraction_method=page.extraction_method, text_quality=page.text_quality,
+                    citation_text=page.extracted_text,
+                ))
+        ranked.sort(key=lambda hit: hit.score, reverse=True)
+        return ranked[:6]
+
     @app.get("/api/admin/stats")
     async def admin_stats():
         with Session(app.state.engine) as session:
@@ -226,9 +331,10 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
             photo_count = len(session.scalars(select(Photo.id)).all())
             questions = len(session.scalars(select(ExpertQuestion.id).where(ExpertQuestion.status == "new")).all())
             pending = len(session.scalars(select(Node.id).where(Node.status.in_(("ai_draft", "review")))).all())
+            local_ai = ollama_status(session)
         return {"machines": len(real_machines), "documents": document_count, "pages": page_count,
                 "images": photo_count, "new_questions": questions, "draft_nodes": pending,
-                "ai": model_status()}
+                "ai": local_ai}
 
     @app.get("/api/admin/machines")
     async def admin_machines():
@@ -440,17 +546,27 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
                 if part_graph:
                     session.add(AppSetting(key=f"part_graph:{document.id}",
                                            value=json.dumps(part_graph, ensure_ascii=False, sort_keys=True)))
+                analysis_run = AnalysisRun(
+                    machine_id=machine_id, source_document_id=document.id,
+                    prompt_version="grn471-local-extract-v1", stage="queued",
+                    progress_percent=0, status="queued",
+                    raw_response={"sections": {}, "claims": [], "rejected": []},
+                )
+                session.add(analysis_run)
+                session.flush()
                 try:
                     session.commit()
                 except IntegrityError:
                     session.rollback()
                     destination.unlink(missing_ok=True)
                     raise HTTPException(status_code=409, detail="PDF не удалось сохранить: повторная загрузка")
+                enqueue_analysis(app, analysis_run.id)
                 return {"id": document.id, "machine_id": machine_id, "title": document.title,
                         "filename": safe_name, "page_count": page_count,
                         "pages_with_text": sum(1 for page in session.scalars(select(DocumentPage).where(
                             DocumentPage.source_document_id == document.id)).all() if page.text_quality == "good"),
                         "scope": scope, "sha256": sha256,
+                        "analysis_run_id": analysis_run.id, "analysis_status": "queued",
                         "parts_indexed": len(part_graph.get("parts", [])) if part_graph else 0}
         except HTTPException:
             staged.unlink(missing_ok=True)
@@ -470,6 +586,90 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
                 raise HTTPException(status_code=404, detail="PDF отсутствует в хранилище")
             return FileResponse(path, media_type="application/pdf", filename=document.original_filename,
                                 content_disposition_type="inline")
+
+    @app.get("/api/admin/documents/{document_id}/page/{page_number}/image")
+    async def admin_document_page_image(document_id: int, page_number: int, quote: str = Query(default="", max_length=2000)):
+        with Session(app.state.engine) as session:
+            document = session.get(SourceDocument, document_id)
+            if document is None:
+                raise HTTPException(status_code=404, detail="Документ не найден")
+            page_record = session.scalar(select(DocumentPage).where(
+                DocumentPage.source_document_id == document_id,
+                DocumentPage.page_number == page_number,
+            ))
+            if page_record is None:
+                raise HTTPException(status_code=404, detail="Страница не найдена в локальном индексе")
+            pdf_path = stored_file_path(app.state.data_root, document.storage_path)
+            if not pdf_path.is_file():
+                raise HTTPException(status_code=404, detail="PDF отсутствует в локальном хранилище")
+            verified_quote = bool(quote and normalize(quote) in normalize(page_record.extracted_text or ""))
+        try:
+            import pypdfium2 as pdfium
+            pdf = pdfium.PdfDocument(str(pdf_path))
+            if page_number < 1 or page_number > len(pdf):
+                pdf.close()
+                raise HTTPException(status_code=404, detail="Страница отсутствует в PDF")
+            page = pdf[page_number - 1]
+            bitmap = page.render(scale=1.6)
+            image = bitmap.to_pil().convert("RGBA")
+            highlighted = False
+            if verified_quote:
+                text_page = page.get_textpage()
+                page_text = text_page.get_text_range()
+                mapped_chars = []
+                char_indexes = []
+                for char_index, char in enumerate(page_text):
+                    normalized_char = unicodedata.normalize("NFKC", char).casefold().replace("ё", "е")
+                    for part in normalized_char:
+                        if part.isspace():
+                            if mapped_chars and mapped_chars[-1] != " ":
+                                mapped_chars.append(" ")
+                                char_indexes.append(char_index)
+                        else:
+                            mapped_chars.append(part)
+                            char_indexes.append(char_index)
+                full_normalized_page = "".join(mapped_chars)
+                leading = len(full_normalized_page) - len(full_normalized_page.lstrip())
+                trailing = len(full_normalized_page.rstrip())
+                normalized_page = full_normalized_page[leading:trailing]
+                char_indexes = char_indexes[leading:trailing]
+                normalized_quote = normalize(quote)
+                start_index = normalized_page.find(normalized_quote)
+                if start_index >= 0 and normalized_quote:
+                    char_start = char_indexes[start_index]
+                    char_end = char_indexes[start_index + len(normalized_quote) - 1]
+                    width, height = page.get_size()
+                    scale_x, scale_y = image.width / width, image.height / height
+                    overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+                    from PIL import ImageDraw
+                    draw = ImageDraw.Draw(overlay)
+                    for text_index in range(char_start, char_end + 1):
+                        try:
+                            left, bottom, right, top = text_page.get_charbox(text_index)
+                        except (IndexError, TypeError, ValueError):
+                            continue
+                        box = (max(0, int(left * scale_x) - 1),
+                               max(0, int((height - top) * scale_y) - 1),
+                               min(image.width, int(right * scale_x) + 2),
+                               min(image.height, int((height - bottom) * scale_y) + 2))
+                        if box[2] > box[0] and box[3] > box[1]:
+                            draw.rectangle(box, fill=(255, 228, 45, 105), outline=(255, 175, 0, 190), width=1)
+                    image = Image.alpha_composite(image, overlay)
+                    highlighted = True
+                text_page.close()
+            output = io.BytesIO()
+            image.convert("RGB").save(output, format="PNG", optimize=True)
+            bitmap.close()
+            page.close()
+            pdf.close()
+            return Response(content=output.getvalue(), media_type="image/png", headers={
+                "Cache-Control": "no-store", "X-Calibre-Quote-Verified": "1" if verified_quote else "0",
+                "X-Calibre-Quote-Highlighted": "1" if highlighted else "0",
+            })
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Не удалось отрисовать страницу PDF: {type(exc).__name__}") from exc
 
     @app.delete("/api/admin/documents/{document_id}", status_code=204)
     async def admin_delete_document(document_id: int):
@@ -498,6 +698,7 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
             photos = session.scalars(stmt).all()
             return [{"id": photo.id, "machine_id": photo.machine_id, "node_id": photo.node_id,
                      "caption": photo.caption, "kind": photo.photo_kind,
+                     "sync_to_phones": photo.sync_to_phones,
                      "filename": Path(photo.storage_path).name,
                      "url": f"/api/admin/media/{photo.id}/file"} for photo in photos]
 
@@ -507,6 +708,7 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
         file: UploadFile = File(...),
         caption: str = Form(default="", max_length=300),
         node_id: int | None = Form(default=None, gt=0),
+        sync_to_phones: bool = Form(default=False),
     ):
         staging_dir = app.state.data_root / "staging"
         staged, sha256, size = await stage_upload(file, staging_dir, MAX_IMAGE_BYTES)
@@ -533,6 +735,8 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
                     node = session.get(Node, node_id)
                     if node is None or node.machine_id != machine_id:
                         raise HTTPException(status_code=422, detail="Выбранный узел не относится к этой технике")
+                if sync_to_phones and node_id is None:
+                    raise HTTPException(status_code=422, detail="Для передачи фото по LAN прикрепите его к узлу")
                 duplicate = session.scalar(select(Photo).where(Photo.machine_id == machine_id,
                                                                Photo.storage_path == relative.as_posix()))
                 if duplicate:
@@ -540,7 +744,8 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
                 staged.replace(destination)
                 photo = Photo(machine_id=machine_id, node_id=node_id, storage_path=relative.as_posix(),
                               caption=caption.strip(), photo_kind="node" if node_id else "candidate",
-                              usage_rights="internal_only", allow_training=False, published=False)
+                              usage_rights="internal_only", allow_training=False, published=False,
+                              sync_to_phones=sync_to_phones)
                 session.add(photo)
                 try:
                     session.commit()
@@ -550,6 +755,7 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
                     raise HTTPException(status_code=409, detail="Изображение не удалось сохранить")
                 return {"id": photo.id, "machine_id": machine_id, "node_id": photo.node_id,
                         "caption": photo.caption, "filename": destination.name, "bytes": size,
+                        "sync_to_phones": photo.sync_to_phones,
                         "url": f"/api/admin/media/{photo.id}/file"}
         except HTTPException:
             staged.unlink(missing_ok=True)
@@ -557,6 +763,18 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
         except Exception as exc:
             staged.unlink(missing_ok=True)
             raise HTTPException(status_code=422, detail="Не удалось загрузить изображение") from exc
+
+    @app.put("/api/admin/media/{photo_id}/sync")
+    async def admin_update_media_sync(photo_id: int, body: PhotoSyncRequest):
+        with Session(app.state.engine) as session:
+            photo = session.get(Photo, photo_id)
+            if photo is None:
+                raise HTTPException(status_code=404, detail="Изображение не найдено")
+            if body.enabled and (photo.usage_rights != "internal_only" or photo.node_id is None):
+                raise HTTPException(status_code=409, detail="LAN-sync включается только для внутреннего фото, прикреплённого к узлу")
+            photo.sync_to_phones = body.enabled
+            session.commit()
+            return {"id": photo.id, "sync_to_phones": photo.sync_to_phones}
 
     @app.get("/api/admin/media/{photo_id}/file")
     async def admin_media_file(photo_id: int):
@@ -569,9 +787,304 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
                 raise HTTPException(status_code=404, detail="Изображение отсутствует в хранилище")
             return FileResponse(path)
 
+    @app.get("/api/mobile/media/{photo_id}")
+    async def mobile_internal_media(photo_id: int):
+        with Session(app.state.engine) as session:
+            photo = session.get(Photo, photo_id)
+            if (photo is None or not photo.sync_to_phones or photo.usage_rights != "internal_only"
+                    or photo.node_id is None):
+                raise HTTPException(status_code=404, detail="Внутреннее изображение не разрешено для локальной синхронизации")
+            node = session.get(Node, photo.node_id)
+            machine = session.get(Machine, photo.machine_id)
+            if node is None or node.status != "published" or machine is None or machine.status != "published":
+                raise HTTPException(status_code=404, detail="Изображение доступно только в опубликованной карточке")
+            path = stored_file_path(app.state.data_root, photo.storage_path)
+            if not path.is_file():
+                raise HTTPException(status_code=404, detail="Изображение отсутствует в локальном хранилище")
+        try:
+            with Image.open(path) as source:
+                image = ImageOps.exif_transpose(source).convert("RGB")
+                image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
+                output = io.BytesIO()
+                image.save(output, format="JPEG", quality=78, optimize=True)
+            return Response(content=output.getvalue(), media_type="image/jpeg", headers={
+                "Cache-Control": "private, no-store", "X-Calibre-Internal-LAN": "1",
+            })
+        except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+            raise HTTPException(status_code=422, detail="Не удалось подготовить внутреннее изображение") from exc
+
+    @app.get("/api/admin/ollama/status")
+    async def admin_ollama_status():
+        with Session(app.state.engine) as session:
+            return ollama_status(session)
+
+    @app.put("/api/admin/ollama/settings")
+    async def admin_ollama_settings(body: OllamaSettingsRequest):
+        with Session(app.state.engine) as session:
+            try:
+                selected = save_model_settings(session, body.chat_model, body.search_model)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            return {**selected, "status": ollama_status(session)}
+
+    @app.post("/api/admin/ollama/download", status_code=202)
+    async def admin_ollama_download(body: OllamaDownloadRequest):
+        with Session(app.state.engine) as session:
+            selected = model_settings(session)
+        model = selected["chat_model"] if body.profile == "chat" else selected["search_model"]
+        return start_model_download(app.state.session_factory, model)
+
+    @app.get("/api/admin/analysis")
+    async def admin_analysis_list(machine_id: int = Query(gt=0)):
+        with Session(app.state.engine) as session:
+            runs = session.scalars(select(AnalysisRun).where(
+                AnalysisRun.machine_id == machine_id
+            ).order_by(AnalysisRun.started_at.desc())).all()
+            return [analysis_payload(run) for run in runs]
+
+    @app.get("/api/admin/analysis/{run_id}")
+    async def admin_analysis_get(run_id: int):
+        with Session(app.state.engine) as session:
+            run = session.get(AnalysisRun, run_id)
+            if run is None:
+                raise HTTPException(status_code=404, detail="Разбор документа не найден")
+            return analysis_payload(run)
+
+    @app.post("/api/admin/analysis/{run_id}/resume", status_code=202)
+    async def admin_analysis_resume(run_id: int):
+        with Session(app.state.engine) as session:
+            run = session.get(AnalysisRun, run_id)
+            if run is None:
+                raise HTTPException(status_code=404, detail="Разбор документа не найден")
+            if run.status in {"running", "indexing"}:
+                return {"accepted": True, "already_running": True, **analysis_payload(run)}
+            run.status = "queued"
+            run.stage = "Возобновление с последнего сохранённого раздела"
+            session.commit()
+        enqueue_analysis(app, run_id)
+        return {"accepted": True, "already_running": False, "id": run_id}
+
+    @app.post("/api/admin/analysis/{run_id}/review")
+    async def admin_analysis_review(run_id: int, body: AnalysisReviewRequest):
+        with Session(app.state.engine) as session:
+            run = session.get(AnalysisRun, run_id)
+            if run is None or run.source_document_id is None:
+                raise HTTPException(status_code=404, detail="Разбор документа не найден")
+            if run.status not in {"review", "error"}:
+                raise HTTPException(status_code=409, detail="Карточки можно проверять после завершения разбора или его остановки.")
+            document = session.get(SourceDocument, run.source_document_id)
+            pages = {row.page_number: row.extracted_text for row in session.scalars(select(DocumentPage).where(
+                DocumentPage.source_document_id == run.source_document_id
+            )).all()}
+            raw = dict(run.raw_response or {})
+            claims = list(raw.get("claims") or [])
+            if body.claim_index >= len(claims):
+                raise HTTPException(status_code=404, detail="Карточка разбора не найдена")
+            claim = dict(claims[body.claim_index])
+            allowed = {"title", "purpose", "text", "name", "value", "unit", "condition", "page", "quote",
+                       "symptom", "cause", "remedy", "node", "steps", "description"}
+            if set(body.changes) - allowed:
+                raise HTTPException(status_code=422, detail="Это поле нельзя изменить в карточке разбора")
+            if body.action == "edit":
+                claim.update(body.changes)
+                claim["human_verified"] = False
+                claim["review_status"] = "edited"
+                claim["reviewer"] = body.reviewer.strip() or None
+                claim["review_note"] = "Изменено человеком; требуется отдельная проверка"
+                valid, errors = _verify_record(str(claim.get("kind") or ""), claim, pages)
+                claim["auto_verified"] = bool(valid)
+                claim["validation_errors"] = errors
+            elif body.action == "reject":
+                claim["review_status"] = "rejected"
+                claim["human_verified"] = False
+                claim["auto_verified"] = False
+                claim["reviewer"] = body.reviewer.strip() or None
+                claim["review_note"] = body.reason.strip() or "Отклонено проверяющим"
+            else:
+                kind = str(claim.get("kind") or "")
+                valid, errors = _verify_record(kind, claim, pages)
+                claim_text = " ".join(str(claim.get(key) or "") for key in (
+                    "title", "purpose", "text", "name", "value", "unit", "condition",
+                    "symptom", "cause", "remedy", "node", "description",
+                )) + " " + " ".join(map(str, claim.get("steps") or []))
+                has_numeric_claim = kind in {"technical_norms", "maintenance_norms"} or bool(re.search(r"\d", claim_text))
+                if has_numeric_claim and not valid:
+                    raise HTTPException(status_code=409, detail="Числовой факт нельзя подтвердить вручную, пока цитата, страница и все числа не проходят программную сверку.")
+                if not valid and (not body.reviewer.strip() or not body.reason.strip()):
+                    raise HTTPException(status_code=409, detail="Для ручного подтверждения укажите проверяющего и основание; цитата/страница останутся в карточке.")
+                if not claim.get("page") or not claim.get("quote"):
+                    raise HTTPException(status_code=409, detail="Для подтверждения нужна страница и записанная цитата из PDF.")
+                claim["review_status"] = "verified"
+                claim["human_verified"] = True
+                claim["auto_verified"] = False
+                claim["reviewer"] = body.reviewer.strip() or "Проверено человеком"
+                claim["review_note"] = body.reason.strip() or ("Цитата и число проверены программно; подтверждено человеком." if valid else "Проверено человеком по изображению/оригиналу PDF.")
+                claim["validation_errors"] = [] if valid else errors
+            claims[body.claim_index] = claim
+            raw["claims"] = claims
+            raw["review_updated_at"] = datetime.now().astimezone().isoformat()
+            run.raw_response = raw
+            session.commit()
+            return {"claim": claim, "analysis": analysis_payload(run)}
+
+    @app.post("/api/admin/analysis/{run_id}/publish")
+    async def admin_analysis_publish(run_id: int, body: AnalysisPublishRequest):
+        counts = {"nodes": 0, "adjustments": 0, "norms": 0, "problems": 0, "notes": 0}
+        with Session(app.state.engine) as session:
+            run = session.get(AnalysisRun, run_id)
+            if run is None or run.source_document_id is None:
+                raise HTTPException(status_code=404, detail="Разбор документа не найден")
+            machine = session.get(Machine, run.machine_id)
+            document = session.get(SourceDocument, run.source_document_id)
+            if machine is None or machine.is_demo or machine.status == "archived" or document is None:
+                raise HTTPException(status_code=404, detail="Рабочая машина или PDF не найдены")
+            raw = dict(run.raw_response or {})
+            claims = list(raw.get("claims") or [])
+            published = set(raw.get("published_claim_indexes") or [])
+            pages = {row.page_number: row.extracted_text for row in session.scalars(select(DocumentPage).where(
+                DocumentPage.source_document_id == run.source_document_id
+            )).all()}
+            nodes_by_title = {node.title.casefold(): node for node in session.scalars(select(Node).where(Node.machine_id == machine.id)).all()}
+            next_number = (session.scalar(select(Node.number).where(Node.machine_id == machine.id).order_by(Node.number.desc()).limit(1)) or 0) + 1
+
+            def find_or_create_node(title: str, purpose: str = "", page: int | None = None, quote: str | None = None):
+                nonlocal next_number
+                name = (title or "Узел из руководства").strip()[:240]
+                key = name.casefold()
+                if key in nodes_by_title:
+                    node = nodes_by_title[key]
+                    if purpose and not node.purpose:
+                        node.purpose = purpose[:4000]
+                    return node
+                node = Node(machine_id=machine.id, number=next_number, title=name,
+                            purpose=purpose[:4000], source_page=page, source_quote=quote,
+                            status="published")
+                next_number += 1
+                session.add(node)
+                session.flush()
+                nodes_by_title[key] = node
+                counts["nodes"] += 1
+                return node
+
+            selected = []
+            for index, claim in enumerate(claims):
+                if index in published:
+                    continue
+                state = claim.get("review_status")
+                if body.mode == "auto_verified":
+                    if state != "auto_verified" or not claim.get("auto_verified") or claim.get("kind") == "gaps":
+                        continue
+                    valid, errors = _verify_record(str(claim.get("kind") or ""), claim, pages)
+                    if not valid:
+                        claim["auto_verified"] = False
+                        claim["review_status"] = "rejected"
+                        claim["validation_errors"] = errors
+                        continue
+                elif state != "verified" or not claim.get("human_verified"):
+                    continue
+                selected.append((index, claim))
+
+            known_norms: dict[str, set[str]] = {}
+            existing_norms = session.scalars(
+                select(Norm).join(Adjustment, Norm.adjustment_id == Adjustment.id)
+                .join(Node, Adjustment.node_id == Node.id).where(Node.machine_id == machine.id)
+            ).all()
+            for existing_norm in existing_norms:
+                key = normalize(existing_norm.name) + "\\0" + normalize(existing_norm.condition or "")
+                value = normalize(f"{existing_norm.value_original} {existing_norm.unit_original or ''}")
+                known_norms.setdefault(key, set()).add(value)
+            deduplicated_selected = []
+            duplicate_indexes = []
+            for index, claim in selected:
+                if claim.get("kind") not in {"technical_norms", "maintenance_norms"}:
+                    deduplicated_selected.append((index, claim))
+                    continue
+                key = normalize(str(claim.get("name") or "")) + "\\0" + normalize(str(claim.get("condition") or ""))
+                value = normalize(f"{claim.get('value') or ''} {claim.get('unit') or ''}")
+                known_values = known_norms.setdefault(key, set())
+                if known_values and value not in known_values:
+                    raise HTTPException(status_code=409, detail="Обнаружены противоречащие числовые нормы с одинаковым названием и условием. Проверьте/отклоните конфликтующие карточки; публикация остановлена.")
+                if value in known_values:
+                    duplicate_indexes.append(index)
+                    published.add(index)
+                    continue
+                known_values.add(value)
+                deduplicated_selected.append((index, claim))
+            selected = deduplicated_selected
+
+            for index, claim in selected:
+                kind = str(claim.get("kind") or "")
+                page = claim.get("page") if isinstance(claim.get("page"), int) else None
+                quote = str(claim.get("quote") or "") or None
+                is_human = claim.get("review_status") == "verified"
+                if kind == "components":
+                    title = str(claim.get("title") or "Узел из руководства")
+                    purpose = str(claim.get("purpose") or "")
+                    find_or_create_node(title, purpose, page, quote)
+                elif kind == "adjustments":
+                    node = find_or_create_node(str(claim.get("node") or claim.get("title") or "Узел из руководства"),
+                                               page=page, quote=quote)
+                    steps = [str(step) for step in claim.get("steps", []) if str(step).strip()]
+                    if page:
+                        steps.append(f"Источник: локальный PDF, стр. {page}.")
+                    session.add(Adjustment(node_id=node.id, title=str(claim.get("title") or "Регулировка")[:240],
+                                           instructions=steps, status="published"))
+                    counts["adjustments"] += 1
+                elif kind in {"technical_norms", "maintenance_norms"}:
+                    node = find_or_create_node(str(claim.get("node") or "Параметры из руководства"), page=page, quote=quote)
+                    adjustment = Adjustment(node_id=node.id, title="Числовые нормы из руководства",
+                                            instructions=[], status="published")
+                    session.add(adjustment)
+                    session.flush()
+                    session.add(Norm(
+                        adjustment_id=adjustment.id, name=str(claim.get("name") or "Норма из руководства")[:300],
+                        condition=str(claim.get("condition") or ""), value_original=str(claim.get("value") or "")[:240],
+                        unit_original=str(claim.get("unit") or "")[:80] or None,
+                        source_kind="document", source_document_id=document.id,
+                        source_page_start=page, source_page_end=page, source_quote=quote,
+                        review_status="verified" if is_human else "auto_verified",
+                    ))
+                    counts["norms"] += 1
+                elif kind == "faults":
+                    symptom = str(claim.get("symptom") or "Неисправность из руководства")
+                    problem = Problem(machine_id=machine.id, title=symptom[:320],
+                                      symptom=f"Симптом: {symptom}\\nПричина: {claim.get('cause') or 'не указана'}",
+                                      source_page=page, source_quote=quote, status="published")
+                    problem.steps.append(ProblemStep(step_number=1, instruction=str(claim.get("remedy") or "См. руководство"),
+                                                     source_page=page, source_quote=quote))
+                    session.add(problem)
+                    counts["problems"] += 1
+                elif kind in {"maintenance", "safety", "gaps"}:
+                    title = {"maintenance": "Обслуживание", "safety": "Безопасность", "gaps": "Пробел документа"}[kind]
+                    text = str(claim.get("text") or claim.get("description") or "")
+                    machine.characteristics.append(MachineCharacteristic(
+                        label=f"{title}: {claim.get('title') or claim.get('name') or kind}",
+                        display_value=text[:240], source_page=page, source_quote=quote,
+                        auto_verified=bool(claim.get("auto_verified")) and not is_human,
+                        human_verification_required=(kind == "gaps"), status="published",
+                    ))
+                    counts["notes"] += 1
+                published.add(index)
+            session.flush()
+            machine.status = "published"
+            machine.version += 1
+            raw["published_claim_indexes"] = sorted(published)
+            if duplicate_indexes:
+                raw.setdefault("deduplicated_claim_indexes", []).extend(
+                    index for index in duplicate_indexes if index not in raw.get("deduplicated_claim_indexes", [])
+                )
+            raw["last_publication"] = {"mode": body.mode, "reviewer": body.reviewer.strip() or None,
+                                       "at": datetime.now().astimezone().isoformat(), "counts": counts}
+            run.raw_response = raw
+            session.commit()
+            return {"published": sum(counts.values()), "deduplicated_claims": len(duplicate_indexes), "counts": counts,
+                    "machine_id": machine.id, "mode": body.mode,
+                    "label": "Проверено человеком" if body.mode == "human_verified" else "Автопроверено; человеком не сверено"}
+
     @app.get("/api/admin/assistant/status")
     async def admin_assistant_status():
-        return model_status()
+        with Session(app.state.engine) as session:
+            return ollama_status(session)
 
     @app.post("/api/admin/assistant/answer")
     async def admin_assistant_answer(body: AssistantRequest):
@@ -612,13 +1125,38 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
                 result["citations"] = verified_citations
                 return result
             hits = search_pages(session, body.question, machine_id=body.machine_id, limit=6)
+            part_answer = None
             if is_parts_query(body.question):
                 part_hits = search_part_graph(session, body.question, machine_id=body.machine_id, limit=2)
                 if part_hits:
-                    graph_pages = {(hit.document_id, hit.page) for hit in part_hits}
-                    hits = part_hits + [hit for hit in hits if (hit.document_id, hit.page) not in graph_pages]
-                    hits = hits[:10]
-        result = await generate_grounded_answer(body.question.strip(), hits)
+                    part_answer = _part_lookup_response(part_hits)
+                    if part_answer is not None:
+                        part_answer["evidence"] = [hit.public_dict() for hit in part_hits]
+            settings = model_settings(session)
+            local_status = ollama_status(session)
+            local_model_ready = bool(local_status["running"] and local_status["chat_model_ready"])
+            if part_answer is None and local_model_ready:
+                semantic_hits = semantic_manual_hits(session, body.machine_id, body.question.strip(), settings["search_model"])
+                by_page = {(hit.document_id, hit.page): hit for hit in hits}
+                for hit in semantic_hits:
+                    existing = by_page.get((hit.document_id, hit.page))
+                    if existing:
+                        existing.score += hit.score
+                    else:
+                        by_page[(hit.document_id, hit.page)] = hit
+                hits = sorted(by_page.values(), key=lambda hit: hit.score, reverse=True)[:8]
+        if part_answer is not None:
+            result = part_answer
+        elif not local_model_ready:
+            result = {
+                "status": "not_configured",
+                "answer": "Локальная Ollama-модель не готова. Установите Ollama и загрузите выбранную модель; облачный fallback отключён. Найденные выдержки доступны для ручной проверки.",
+                "citations": [], "model_used": False, "local_only": True,
+                "evidence": [hit.public_dict() for hit in hits],
+            }
+        else:
+            result = generate_local_answer(body.question.strip(), hits, settings["chat_model"])
+            result["evidence"] = [hit.public_dict() for hit in hits]
         for citation in result.get("citations", []):
             citation["viewer_url"] = f"/api/admin/documents/{citation['document_id']}/file#page={citation['page']}"
         return result

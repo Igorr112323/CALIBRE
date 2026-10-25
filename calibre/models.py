@@ -105,6 +105,8 @@ class MachineCharacteristic(Base):
     source_document_id: Mapped[int | None] = mapped_column(ForeignKey("source_documents.id", ondelete="SET NULL"))
     source_page: Mapped[int | None] = mapped_column(Integer)
     source_quote: Mapped[str | None] = mapped_column(Text)
+    auto_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    human_verification_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     status: Mapped[str] = mapped_column(String(24), default="draft", nullable=False)
     machine: Mapped[Machine] = relationship(back_populates="characteristics")
 
@@ -124,6 +126,8 @@ class Node(Base):
     number: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str] = mapped_column(String(240), nullable=False)
     purpose: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    source_page: Mapped[int | None] = mapped_column(Integer)
+    source_quote: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(24), default="ai_draft", nullable=False)
     map_x: Mapped[Decimal | None] = mapped_column(Numeric(7, 6))
     map_y: Mapped[Decimal | None] = mapped_column(Numeric(7, 6))
@@ -176,11 +180,12 @@ class Adjustment(Base):
 class Norm(Base):
     __tablename__ = "norms"
     __table_args__ = (
-        CheckConstraint("source_kind IN ('document', 'department_measurement')", name="ck_norm_source_kind"),
-        CheckConstraint("review_status IN ('unverified', 'verified', 'rejected', 'forced_accept')", name="ck_norm_review_status"),
+        CheckConstraint("source_kind IN ('document', 'department_measurement', 'packaged_demo')", name="ck_norm_source_kind"),
+        CheckConstraint("review_status IN ('unverified', 'auto_verified', 'verified', 'rejected', 'forced_accept')", name="ck_norm_review_status"),
         CheckConstraint(
             "(source_kind = 'document' AND source_document_id IS NOT NULL AND source_page_start IS NOT NULL AND source_page_start >= 1 AND length(trim(source_quote)) > 0) OR "
-            "(source_kind = 'department_measurement' AND length(trim(measured_by)) > 0 AND measured_at IS NOT NULL)",
+            "(source_kind = 'department_measurement' AND length(trim(measured_by)) > 0 AND measured_at IS NOT NULL) OR "
+            "(source_kind = 'packaged_demo' AND source_document_id IS NULL AND source_page_start IS NOT NULL AND source_page_start >= 1 AND length(trim(source_quote)) > 0)",
             name="ck_norm_has_source",
         ),
         CheckConstraint("review_status != 'forced_accept' OR length(trim(force_comment)) > 0", name="ck_norm_force_comment"),
@@ -191,6 +196,9 @@ class Norm(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     adjustment_id: Mapped[int] = mapped_column(ForeignKey("adjustments.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(300), default="", nullable=False)
+    condition: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    verification_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
     value_original: Mapped[str] = mapped_column(String(240), nullable=False)
     unit_original: Mapped[str | None] = mapped_column(String(80))
     source_kind: Mapped[str] = mapped_column(String(32), default="document", nullable=False)
@@ -231,6 +239,8 @@ class Problem(Base):
     machine_id: Mapped[int] = mapped_column(ForeignKey("machines.id", ondelete="CASCADE"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(320), nullable=False)
     symptom: Mapped[str] = mapped_column(Text, nullable=False)
+    source_page: Mapped[int | None] = mapped_column(Integer)
+    source_quote: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(24), default="ai_draft", nullable=False)
     machine: Mapped[Machine] = relationship(back_populates="problems")
     steps: Mapped[list["ProblemStep"]] = relationship(back_populates="problem", cascade="all, delete-orphan", order_by="ProblemStep.step_number")
@@ -244,6 +254,8 @@ class ProblemStep(Base):
     problem_id: Mapped[int] = mapped_column(ForeignKey("problems.id", ondelete="CASCADE"), nullable=False, index=True)
     step_number: Mapped[int] = mapped_column(Integer, nullable=False)
     instruction: Mapped[str] = mapped_column(Text, nullable=False)
+    source_page: Mapped[int | None] = mapped_column(Integer)
+    source_quote: Mapped[str | None] = mapped_column(Text)
     linked_node_id: Mapped[int | None] = mapped_column(ForeignKey("nodes.id", ondelete="SET NULL"))
     problem: Mapped[Problem] = relationship(back_populates="steps")
     linked_node: Mapped[Node | None] = relationship()
@@ -266,6 +278,7 @@ class Photo(Base):
     usage_rights: Mapped[str] = mapped_column(String(32), default="internal_only", nullable=False)
     allow_training: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    sync_to_phones: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     machine: Mapped[Machine] = relationship(back_populates="photos")
     node: Mapped[Node | None] = relationship(back_populates="photos")
 

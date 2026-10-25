@@ -1,4 +1,4 @@
-name: Build Kolibri Windows expert EXE
+name: Build and self-test Kolibri Windows demo EXE
 
 on:
   push:
@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-windows-exe:
@@ -63,6 +63,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path build-notices | Out-Null
           Copy-Item THIRD_PARTY_NOTICES.md build-notices/THIRD_PARTY_NOTICES.md
           Copy-Item licenses/PyInstaller-COPYING.txt build-notices/PyInstaller-COPYING.txt
+          $pdfiumLicenses = python -c "import importlib.metadata as m; print(m.distribution('pypdfium2')._path / 'licenses')"
+          if (-not (Test-Path $pdfiumLicenses)) { throw "Не найдены bundled notices PDFium" }
+          New-Item -ItemType Directory -Force -Path build-notices/pypdfium2 | Out-Null
+          Copy-Item "$pdfiumLicenses/*" build-notices/pypdfium2/ -Recurse
 
       - name: Build and self-test the Windows package
         shell: pwsh
@@ -79,6 +83,7 @@ jobs:
             "--collect-all", "sqlalchemy",
             "--collect-all", "pypdf",
             "--collect-all", "pdfplumber",
+            "--collect-all", "pypdfium2",
             "--collect-all", "pdfminer",
             "--collect-all", "snowballstemmer",
             "--collect-all", "rapidfuzz",
@@ -118,18 +123,3 @@ jobs:
             dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
-
-      - name: Publish Windows-only test download
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: pwsh
-        run: |
-          $tag = "kolibri-expert-pc-$env:GITHUB_RUN_NUMBER"
-          gh release create $tag `
-            dist/Kolibri-PC-Expert.exe `
-            dist/SHA256SUMS.txt `
-            --repo $env:GITHUB_REPOSITORY `
-            --target $env:GITHUB_SHA `
-            --prerelease `
-            --title "Kolibri — автономная экспертная база для Windows ($env:GITHUB_RUN_NUMBER)" `
-            --notes "Однофайловый Windows EXE с упрощённой ПК-админкой и локальной экспертной системой Kolibri. Включены проверяемый каталог узлов и детерминированный поиск по шести проявлениям из таблицы 10.1 руководства GRN-471 v4; ответ показывает цитаты и страницы, неизвестная причина не выдумывается. Для использования загрузите свою локальную копию точного руководства через админку; PDF в релиз не включён. Это НЕ обученная языковая модель и НЕ содержит сторонние веса: это собственная экспертная база и правила, а не универсальная гарантия идеального диагноза. Инженерные гипотезы остаются отдельно помеченными и не заменяют подтверждённые инструкции. Сборка проходит Windows self-test; установка на ПК владельца ещё не проверена. Android/APK в этом workflow не собираются и не публикуются."

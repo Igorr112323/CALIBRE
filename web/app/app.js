@@ -1,15 +1,104 @@
 import { Capacitor } from '@capacitor/core';
+import demoData from './grn471-demo.json';
 
 const isNative = Capacitor.isNativePlatform();
 const API_PREFIX = '/api/mobile';
 const BROWSER_ORIGIN = window.location.protocol.startsWith('http') ? window.location.origin : '';
+function buildEmbeddedDemo() {
+  const machine = {
+    ...demoData.machine,
+    id: 'demo-machine:GRN-471-KOLIBRI-V4',
+    code: demoData.machine.code,
+    version: 1,
+    is_demo: true,
+    label: 'Демо-срез: автопроверено, человеком не сверено; не использовать вместо руководства',
+    characteristics: [
+      ...demoData.general_facts.map(item => ({ ...item, label: `Из руководства: ${item.label}`, value: item.value, source_page: item.page, source_quote: item.quote })),
+      ...demoData.maintenance.map(item => ({ ...item, label: `Обслуживание: ${item.label}`, value: item.value, source_page: item.page, source_quote: item.quote })),
+      ...demoData.safety_warnings.map(item => ({ ...item, label: `Ограничение безопасности: ${item.label}`, value: item.value, source_page: item.page, source_quote: item.quote })),
+      ...demoData.document_gaps.map(item => ({ ...item, label: `Не указано в документе: ${item.label}`, value: item.value, source_page: item.page, source_quote: item.quote })),
+      ...demoData.norms.map(item => ({
+        label: item.name,
+        value: [item.value, item.unit, item.condition].filter(Boolean).join(' '),
+        source_page: item.page,
+        source_quote: item.quote,
+        auto_verified: true,
+        human_verified: false,
+        verification_label: 'Автопроверено по цитате и числу; человеком не сверено',
+      })),
+    ],
+    nodes: demoData.nodes.map(item => ({
+      ...item,
+      id: `demo-node:${item.key}`,
+      source_page: item.page,
+      source_quote: item.quote,
+      adjustments: [],
+      mistakes: [],
+      related_node_ids: [],
+    })),
+    problems: [],
+  };
+  const nodeByKey = new Map(machine.nodes.map(node => [node.key, node]));
+  demoData.adjustments.forEach((item, index) => {
+    const node = nodeByKey.get(item.node_key);
+    if (!node) return;
+    const instructions = [...item.instructions];
+    if (item.pages?.length) instructions.push(`Источник: руководство по эксплуатации, стр. ${item.pages.join(', ')}.`);
+    if (item.safety_pages?.length) instructions.push(`Ограничения безопасности: стр. ${item.safety_pages.join(', ')}.`);
+    node.adjustments.push({ id: `demo-adjustment:${index + 1}`, title: item.title, instructions, tool: '', norms: [] });
+  });
+  const normsByNode = new Map();
+  demoData.norms.forEach(item => {
+    const node = nodeByKey.get(item.node_key);
+    if (!node) return;
+    const fact = {
+      id: `demo-norm:${item.id}`,
+      name: item.name,
+      condition: item.condition,
+      value: item.value,
+      unit: item.unit,
+      source: { kind: 'packaged_demo', document: demoData.source.title, page_start: item.page, quote: item.quote },
+      auto_verified: true,
+      human_verified: false,
+      verification_label: 'Автопроверено по цитате и числу; человеком не сверено',
+    };
+    if (!normsByNode.has(node.key)) normsByNode.set(node.key, []);
+    normsByNode.get(node.key).push(fact);
+  });
+  for (const [key, norms] of normsByNode) {
+    nodeByKey.get(key).adjustments.push({
+      id: `demo-norms:${key}`,
+      title: 'Нормы и числовые значения из руководства',
+      instructions: [], tool: '', norms,
+    });
+  }
+  machine.problems = demoData.problems.map(item => ({
+    id: `demo-problem:${item.key}`,
+    title: item.title,
+    symptom: `Проявление: ${item.symptom}\nВероятная причина: ${item.cause}`,
+    source_page: item.page,
+    source_quote: item.quotes.map(quote => `«${quote}»`).join('\n'),
+    steps: [{
+      number: 1,
+      instruction: item.remedy,
+      source_page: item.page,
+      source_quote: item.quotes[2],
+      linked_node_id: nodeByKey.get(item.linked_node_key)?.id ?? null,
+    }],
+  }));
+  return machine;
+}
+
+const EMBEDDED_DEMO = buildEmbeddedDemo();
+const DEFAULT_CATALOG = { schema_version: 1, real_machines: [], demo_machines: [EMBEDDED_DEMO] };
 const DEFAULT_STATE = {
   serverUrl: isNative ? '' : BROWSER_ORIGIN,
-  catalog: { schema_version: 1, real_machines: [] },
+  catalog: structuredClone(DEFAULT_CATALOG),
   revision: null,
   lastSync: null,
   feedbackQueue: [],
   questionQueue: [],
+  mediaCache: {},
 };
 const appState = structuredClone(DEFAULT_STATE);
 const ui = {
@@ -54,46 +143,6 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({
 }[char]));
 const newEventId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const asArray = value => Array.isArray(value) ? value : [];
-const TEST_MACHINES = [
-  {
-    id: 'machine-1', model: 'МТЗ-82.1', machine_type: 'Колёсный трактор',
-    characteristics: [
-      { label: 'Класс', value: 'Универсально-пропашной' },
-      { label: 'Двигатель', value: 'Дизельный' },
-      { label: 'Трансмиссия', value: 'Механическая' },
-      { label: 'Рабочее место', value: 'Кабина оператора' },
-    ],
-    nodes: [
-      { id: 'engine-1', number: '01', title: 'Двигатель', purpose: 'Силовой агрегат и системы его обслуживания.', adjustments: [] },
-      { id: 'transmission-1', number: '02', title: 'Трансмиссия', purpose: 'Узлы передачи и распределения крутящего момента.', adjustments: [] },
-      { id: 'hydraulics-1', number: '03', title: 'Гидросистема', purpose: 'Система управления навесным оборудованием.', adjustments: [] },
-      { id: 'steering-1', number: '04', title: 'Рулевое управление', purpose: 'Органы и механизмы управления направлением движения.', adjustments: [] },
-    ],
-    problems: [
-      { id: 'start-1', title: 'Двигатель не запускается', symptom: 'Запуск не происходит или сопровождается необычными признаками.', steps: [{ instruction: 'Отметьте показания приборов и условия, при которых проявился симптом.' }, { instruction: 'Осмотрите машину на наличие видимых предупреждений или утечек.' }] },
-      { id: 'hydraulics-1-problem', title: 'Навесное оборудование не реагирует', symptom: 'Оборудование не выполняет ожидаемое движение.', steps: [{ instruction: 'Уточните, при каких условиях появляется симптом.' }, { instruction: 'Запишите состояние индикаторов и видимые изменения в работе системы.' }] },
-    ],
-  },
-  {
-    id: 'machine-2', model: 'Кировец К-700А', machine_type: 'Тяжёлый колёсный трактор',
-    characteristics: [
-      { label: 'Назначение', value: 'Тяговые и полевые работы' },
-      { label: 'Двигатель', value: 'Дизельный' },
-      { label: 'Трансмиссия', value: 'Механическая' },
-      { label: 'Рабочее место', value: 'Кабина оператора' },
-    ],
-    nodes: [
-      { id: 'engine-2', number: '01', title: 'Двигатель', purpose: 'Силовой агрегат и связанные системы.', adjustments: [] },
-      { id: 'transmission-2', number: '02', title: 'Трансмиссия', purpose: 'Узлы передачи мощности к движителям.', adjustments: [] },
-      { id: 'articulation-2', number: '03', title: 'Шарнирное сочленение', purpose: 'Узел соединения полурам и поворота машины.', adjustments: [] },
-      { id: 'hydraulics-2', number: '04', title: 'Гидросистема', purpose: 'Управление рабочими органами и оборудованием.', adjustments: [] },
-    ],
-    problems: [
-      { id: 'movement-2', title: 'Изменилось поведение при движении', symptom: 'Появились непривычные звуки или изменения в управлении.', steps: [{ instruction: 'Зафиксируйте условия появления и характер изменения.' }, { instruction: 'Передайте наблюдения специалисту для дальнейшей проверки.' }] },
-      { id: 'equipment-2', title: 'Рабочее оборудование не реагирует', symptom: 'Оборудование не выполняет ожидаемое движение.', steps: [{ instruction: 'Уточните, при каких условиях появляется симптом.' }, { instruction: 'Запишите показания приборов и состояние индикаторов.' }] },
-    ],
-  },
-];
 
 function openIndexedDb() {
   return new Promise((resolve, reject) => {
@@ -184,11 +233,12 @@ async function openStorage() {
 function mergeSavedState(saved) {
   if (!saved || typeof saved !== 'object') return;
   appState.serverUrl = typeof saved.serverUrl === 'string' ? saved.serverUrl : DEFAULT_STATE.serverUrl;
-  if (saved.catalog && typeof saved.catalog === 'object') appState.catalog = saved.catalog;
+  if (saved.catalog && typeof saved.catalog === 'object') appState.catalog = ensureDemoCatalog(saved.catalog);
   appState.revision = typeof saved.revision === 'string' ? saved.revision : null;
   appState.lastSync = typeof saved.lastSync === 'string' ? saved.lastSync : null;
   appState.feedbackQueue = asArray(saved.feedbackQueue);
   appState.questionQueue = asArray(saved.questionQueue);
+  appState.mediaCache = saved.mediaCache && typeof saved.mediaCache === 'object' ? saved.mediaCache : {};
   if (!isNative && window.location.pathname.startsWith('/preview')) {
     appState.serverUrl = window.location.origin;
   }
@@ -208,8 +258,32 @@ function setMessage(message, kind = '') {
   ui.messageKind = kind;
 }
 
+function ensureDemoCatalog(catalog) {
+  const value = catalog && typeof catalog === 'object' ? catalog : {};
+  const demos = asArray(value.demo_machines);
+  return {
+    schema_version: value.schema_version || 1,
+    real_machines: asArray(value.real_machines),
+    demo_machines: demos.some(machine => machine.code === demoData.machine.code) ? demos : [...demos, EMBEDDED_DEMO],
+  };
+}
 function machineList() {
-  return TEST_MACHINES;
+  appState.catalog = ensureDemoCatalog(appState.catalog);
+  return [...appState.catalog.demo_machines, ...appState.catalog.real_machines];
+}
+function replaceCatalog(catalog) {
+  const previousMachine = findMachine();
+  const previousNode = findNode(previousMachine);
+  const previousProblem = findProblem(previousMachine);
+  appState.catalog = ensureDemoCatalog(catalog);
+  const nextMachine = previousMachine
+    ? machineList().find(machine => machine.code === previousMachine.code)
+    : null;
+  if (nextMachine) {
+    ui.machineId = nextMachine.id;
+    if (previousNode) ui.nodeId = asArray(nextMachine.nodes).find(node => Number(node.number) === Number(previousNode.number))?.id ?? null;
+    if (previousProblem) ui.problemId = asArray(nextMachine.problems).find(problem => problem.title === previousProblem.title)?.id ?? null;
+  }
 }
 function findMachine(id = ui.machineId) {
   return machineList().find(machine => String(machine.id) === String(id)) ?? null;
@@ -276,6 +350,10 @@ function searchIndex() {
         title: problem.title, text: `${problem.symptom ?? ''} ${asArray(problem.steps).map(step => step.instruction).join(' ')}`,
         snippet: problem.symptom });
     }
+    for (const fact of asArray(machine.characteristics)) {
+      items.push({ type: 'Сведения из руководства', kind: 'machine', machineId: machine.id,
+        title: fact.label, text: `${fact.value ?? ''} ${fact.source_quote ?? ''}`, snippet: fact.value });
+    }
   }
   return items;
 }
@@ -325,7 +403,13 @@ function renderHome() {
 }
 
 function renderScheme() {
-  return `<section class="machine-overview"><h3>Основные узлы</h3><p>Выберите раздел, чтобы открыть карточку и описание.</p><div class="overview-tags">${asArray(findMachine()?.nodes).slice(0, 4).map(node => `<span>${escapeHtml(node.title)}</span>`).join('')}</div></section>`;
+  const nodes = asArray(findMachine()?.nodes).filter(node => node.map && node.map.x != null && node.map.y != null);
+  const hotspots = nodes.map(node => {
+    const x = Math.round(Number(node.map.x) * 700);
+    const y = Math.round(Number(node.map.y) * 300);
+    return `<g class="hotspot" data-action="open-node" data-id="${escapeHtml(node.id)}" tabindex="0" role="button" aria-label="Узел ${escapeHtml(node.number)}: ${escapeHtml(node.title)}"><title>${escapeHtml(node.title)}</title><circle cx="${x}" cy="${y}" r="12" fill="#2e7d32" stroke="#fff" stroke-width="3"/><text x="${x}" y="${y + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="#fff" pointer-events="none">${escapeHtml(node.number)}</text></g>`;
+  }).join('');
+  return `<section class="scheme" aria-label="Схема ГРН-471. Нажмите на номер узла"><svg viewBox="0 0 700 300" role="img" aria-label="Упрощённая схема граблей, подготовленная для демо"><rect x="0" y="0" width="700" height="300" rx="10" fill="#fff"/><path d="M86 146h235l78-36h80" fill="none" stroke="#34483a" stroke-width="14" stroke-linecap="round"/><path d="M316 129h130v47H316z" fill="#e8f5e9" stroke="#2e7d32" stroke-width="5"/><path d="M414 122l80-35m-80 55 88 0m-88 20 76 36" fill="none" stroke="#43a047" stroke-width="6" stroke-linecap="round"/><circle cx="548" cy="145" r="72" fill="#f3f7f3" stroke="#2e7d32" stroke-width="9"/><circle cx="548" cy="145" r="18" fill="#2e7d32"/><path d="M548 73v54m0 36v54m-72-72h54m36 0h54m-122-51 39 39m22 24 39 39m0-102-39 39m-22 24-39 39" stroke="#6d8d70" stroke-width="5" stroke-linecap="round"/><path d="M486 75q65-40 128 3m-127 135q62 39 128-1" fill="none" stroke="#a5b9a7" stroke-width="7"/><path d="M62 118h74v57H62z" fill="#e8f5e9" stroke="#2e7d32" stroke-width="5"/><circle cx="88" cy="204" r="22" fill="#34483a"/><circle cx="147" cy="204" r="16" fill="#34483a"/><path d="M136 145h58m0-10v20m-10-10h20" stroke="#485b4c" stroke-width="7" stroke-linecap="round"/><path d="M390 185l40 38m0-38-40 38" stroke="#8b9d8d" stroke-width="5"/>${hotspots}</svg></section>`;
 }
 
 function renderMachine() {
@@ -334,14 +418,14 @@ function renderMachine() {
   const tabs = `<div class="tabs"><button data-action="tab" data-tab="scheme" class="${ui.tab === 'scheme' ? 'on' : ''}">Схема</button><button data-action="tab" data-tab="nodes" class="${ui.tab === 'nodes' ? 'on' : ''}">Узлы</button><button data-action="tab" data-tab="problems" class="${ui.tab === 'problems' ? 'on' : ''}">Неисправности</button></div>`;
   let tabContent = '';
   if (ui.tab === 'scheme') {
-    const characteristics = asArray(machine.characteristics).map(row => `<div class="settings-row"><span>${escapeHtml(row.label)}</span><strong>${escapeHtml(row.value)}</strong></div>`).join('');
+    const characteristics = asArray(machine.characteristics).map(row => `<div class="settings-row"><span>${escapeHtml(row.label)}${row.source_page ? `<div class="metadata">Руководство · стр. ${escapeHtml(row.source_page)}${row.verification_label ? ` · ${escapeHtml(row.verification_label)}` : ''}${row.verification_note ? ` · ${escapeHtml(row.verification_note)}` : ''}</div>` : ''}${row.source_quote ? `<div class="metadata">«${escapeHtml(row.source_quote)}»</div>` : ''}</span><strong>${escapeHtml(row.value)}</strong></div>`).join('');
     tabContent = `${renderScheme(machine)}<article class="card"><div class="section" style="margin-top:0">Характеристики</div>${characteristics || '<div class="catalog-empty">Характеристики пока не добавлены.</div>'}</article>`;
   } else if (ui.tab === 'nodes') {
     tabContent = asArray(machine.nodes).map((node, index) => `<article class="list-item" data-action="open-node" data-id="${escapeHtml(node.id)}"><div class="num">${index + 1}</div><div><h4>${escapeHtml(node.title)}</h4><p>${escapeHtml(node.purpose || 'Карточка узла')}</p></div><span class="arrow">›</span></article>`).join('') || '<div class="catalog-empty">Узлы пока не добавлены.</div>';
   } else {
     tabContent = asArray(machine.problems).map(problem => `<article class="list-item" data-action="open-problem" data-id="${escapeHtml(problem.id)}"><div class="num warn">!</div><div><h4>${escapeHtml(problem.title)}</h4><p>${asArray(problem.steps).length} шагов проверки</p></div><span class="arrow">›</span></article>`).join('') || '<div class="catalog-empty">Неисправности пока не добавлены.</div>';
   }
-  return `<div class="machine-line"><h2 class="screen-title">${escapeHtml(machine.model)}</h2></div><p class="hint">${escapeHtml(machine.machine_type || '')}</p>${tabs}${tabContent}`;
+  return `<div class="machine-line"><h2 class="screen-title">${escapeHtml(machine.model)}</h2></div><p class="hint">${escapeHtml(machine.machine_type || '')}${machine.label ? ` · ${escapeHtml(machine.label)}` : ''}</p>${tabs}${tabContent}`;
 }
 
 function renderNodeScreen() {
@@ -351,14 +435,14 @@ function renderNodeScreen() {
   const adjustments = asArray(node.adjustments).map(adjustment => {
     const norms = asArray(adjustment.norms);
     const valueHtml = norms.length
-      ? norms.map(norm => `<div class="value">${escapeHtml(norm.value)}${norm.unit ? ` ${escapeHtml(norm.unit)}` : ''}</div>`).join('')
+      ? norms.map(norm => `<div class="value"><span style="display:block;font-size:10px">${escapeHtml(norm.name || '')}</span>${escapeHtml(norm.value)}${norm.unit ? ` ${escapeHtml(norm.unit)}` : ''}${norm.condition ? `<span style="display:block;font-size:10px;font-weight:600">${escapeHtml(norm.condition)}</span>` : ''}</div>`).join('')
       : '<div class="metadata">Значения не опубликованы.</div>';
     const steps = asArray(adjustment.instructions).map(step => `<li>${escapeHtml(step)}</li>`).join('');
     return `<article class="adjustment"><h4>${escapeHtml(adjustment.title)}</h4>${valueHtml}${steps ? `<ol>${steps}</ol>` : ''}${adjustment.tool ? `<div class="tool">🔧 ${escapeHtml(adjustment.tool)}</div>` : ''}${norms.map(norm => `<div class="metadata">Источник: ${escapeHtml(norm.source?.document || 'указан в карточке')}${norm.source?.page_start ? ` · стр. ${escapeHtml(norm.source.page_start)}` : ''}${norm.source?.quote ? ` · «${escapeHtml(norm.source.quote)}»` : ''}</div>`).join('')}</article>`;
   }).join('');
   const mistakes = asArray(node.mistakes).map(item => `<li>${escapeHtml(item.description)}${item.consequence ? ` — ${escapeHtml(item.consequence)}` : ''}</li>`).join('');
   const related = asArray(node.related_node_ids).map(id => findNode(machine, id)).filter(Boolean).map(relatedNode => `<article class="list-item" data-action="open-node" data-id="${escapeHtml(relatedNode.id)}"><div class="num">${escapeHtml(relatedNode.number)}</div><div><h4>${escapeHtml(relatedNode.title)}</h4></div><span class="arrow">›</span></article>`).join('');
-  return `<div class="node-head"><div class="num">${escapeHtml(node.number)}</div><h2>${escapeHtml(node.title)}</h2></div><article class="card"><div class="section" style="margin-top:0">Описание</div><p class="what">${escapeHtml(node.purpose)}</p></article><div class="section">Регулировки</div>${adjustments || '<div class="catalog-empty">Регулировки пока не добавлены.</div>'}${mistakes ? `<div class="errbox"><b>Типичные ошибки</b><ul>${mistakes}</ul></div>` : ''}${related ? `<div class="section">Связанные узлы</div>${related}` : ''}<article class="card"><b style="font-size:14px">Карточка помогла?</b><div class="fb"><button data-action="feedback" data-kind="node" data-id="${escapeHtml(node.id)}" data-helpful="true">👍 Да</button><button data-action="feedback" data-kind="node" data-id="${escapeHtml(node.id)}" data-helpful="false">👎 Нет</button></div></article><button class="btn ghost" data-action="ask" data-context="node">Задать вопрос</button>`;
+  return `<div class="node-head"><div class="num">${escapeHtml(node.number)}</div><h2>${escapeHtml(node.title)}</h2></div><article class="card"><div class="section" style="margin-top:0">Описание</div><p class="what">${escapeHtml(node.purpose)}</p>${node.source_page ? `<div class="metadata">Руководство · стр. ${escapeHtml(node.source_page)} · «${escapeHtml(node.source_quote || '')}»</div>` : ''}</article><div class="section">Регулировки</div>${adjustments || '<div class="catalog-empty">Регулировки пока не добавлены.</div>'}${mistakes ? `<div class="errbox"><b>Типичные ошибки</b><ul>${mistakes}</ul></div>` : ''}${related ? `<div class="section">Связанные узлы</div>${related}` : ''}<article class="card"><b style="font-size:14px">Карточка помогла?</b><div class="fb"><button data-action="feedback" data-kind="node" data-id="${escapeHtml(node.id)}" data-helpful="true">👍 Да</button><button data-action="feedback" data-kind="node" data-id="${escapeHtml(node.id)}" data-helpful="false">👎 Нет</button></div></article><button class="btn ghost" data-action="ask" data-context="node">Задать вопрос</button>`;
 }
 
 function renderProblemScreen() {
@@ -367,9 +451,9 @@ function renderProblemScreen() {
   if (!problem) return '<div class="catalog-empty">Неисправность не найдена.</div>';
   const steps = asArray(problem.steps).map((step, index) => {
     const linkedNode = step.linked_node_id ? findNode(machine, step.linked_node_id) : null;
-    return `<article class="card step"><div class="step-n">${index + 1}</div><div><p>${escapeHtml(step.instruction)}</p>${linkedNode ? `<span class="link" data-action="open-node" data-id="${escapeHtml(linkedNode.id)}">→ Узел ${escapeHtml(linkedNode.number)}: ${escapeHtml(linkedNode.title)}</span>` : ''}</div></article>`;
+    return `<article class="card step"><div class="step-n">${index + 1}</div><div><p>${escapeHtml(step.instruction)}</p>${step.source_page ? `<div class="metadata">РЭ · стр. ${escapeHtml(step.source_page)} · «${escapeHtml(step.source_quote || '')}»</div>` : ''}${linkedNode ? `<span class="link" data-action="open-node" data-id="${escapeHtml(linkedNode.id)}">→ Узел ${escapeHtml(linkedNode.number)}: ${escapeHtml(linkedNode.title)}</span>` : ''}</div></article>`;
   }).join('');
-  return `<article class="card"><h2 style="font-size:16px;line-height:1.35;margin:0">${escapeHtml(problem.title)}</h2><p class="hint" style="margin:7px 0 0">${escapeHtml(problem.symptom)}</p></article>${steps || '<div class="catalog-empty">Шаги проверки пока не добавлены.</div>'}<article class="card"><b style="font-size:14px">Неисправность устранена?</b><div class="fb"><button data-action="feedback" data-kind="problem" data-id="${escapeHtml(problem.id)}" data-helpful="true">✅ Да</button><button data-action="feedback" data-kind="problem" data-id="${escapeHtml(problem.id)}" data-helpful="false">❌ Нет</button></div></article><button class="btn ghost" data-action="ask" data-context="problem">Задать вопрос</button>`;
+  return `<article class="card"><h2 style="font-size:16px;line-height:1.35;margin:0">${escapeHtml(problem.title)}</h2><p class="hint" style="margin:7px 0 0;white-space:pre-line">${escapeHtml(problem.symptom)}</p>${problem.source_page ? `<div class="metadata">РЭ · стр. ${escapeHtml(problem.source_page)} · ${escapeHtml(problem.source_quote || '')}</div>` : ''}</article>${steps || '<div class="catalog-empty">Шаги проверки пока не добавлены.</div>'}<article class="card"><b style="font-size:14px">Неисправность устранена?</b><div class="fb"><button data-action="feedback" data-kind="problem" data-id="${escapeHtml(problem.id)}" data-helpful="true">✅ Да</button><button data-action="feedback" data-kind="problem" data-id="${escapeHtml(problem.id)}" data-helpful="false">❌ Нет</button></div></article><button class="btn ghost" data-action="ask" data-context="problem">Задать вопрос</button>`;
 }
 
 function getApiUrl(path) {
@@ -399,6 +483,37 @@ async function responseJson(response) {
   if (!response.ok) throw new Error(body.detail || body.message || `Ошибка сервера: ${response.status}`);
   return body;
 }
+function blobAsDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error('Не удалось сохранить изображение локально.'));
+    reader.readAsDataURL(blob);
+  });
+}
+async function syncInternalMedia() {
+  const photos = machineList().flatMap(machine => asArray(machine.nodes).flatMap(node => asArray(node.photos)))
+    .filter(photo => photo.internal_lan_only && photo.url && !appState.mediaCache[String(photo.id)]);
+  let downloaded = 0;
+  let failed = 0;
+  let cachedBytes = Object.values(appState.mediaCache).reduce((sum, value) => sum + Math.floor(String(value).length * 0.75), 0);
+  for (const photo of photos) {
+    try {
+      const response = await apiFetch(photo.url);
+      if (!response.ok) { await responseJson(response); failed += 1; continue; }
+      const blob = await response.blob();
+      if (!blob.type.startsWith('image/') || blob.size > 1_500_000 || cachedBytes + blob.size > 12_000_000) {
+        failed += 1;
+        continue;
+      }
+      appState.mediaCache[String(photo.id)] = await blobAsDataUrl(blob);
+      cachedBytes += blob.size;
+      downloaded += 1;
+    } catch (_) { failed += 1; }
+  }
+  if (downloaded) await persist();
+  return { downloaded, failed };
+}
 function currentServerAddress() {
   if (import.meta.env.DEV && !isNative) return 'локальный сервер через loopback-прокси';
   return appState.serverUrl;
@@ -415,15 +530,61 @@ async function checkServer() {
     setMessage(error.message, 'bad');
   }
 }
+function findStableMachine(code) {
+  return machineList().find(machine => machine.code === code) ?? null;
+}
+function resolveQueuedFeedback(entry) {
+  const ref = entry.stable_ref;
+  if (!ref) return Number(entry.target_id) > 0 ? Number(entry.target_id) : null;
+  const machine = findStableMachine(ref.machine_code);
+  if (!machine) return null;
+  if (ref.node_number != null) {
+    const node = asArray(machine.nodes).find(item => Number(item.number) === Number(ref.node_number));
+    return node && Number(node.id) > 0 ? Number(node.id) : null;
+  }
+  if (ref.problem_title) {
+    const problem = asArray(machine.problems).find(item => item.title === ref.problem_title);
+    return problem && Number(problem.id) > 0 ? Number(problem.id) : null;
+  }
+  return Number(entry.target_id) > 0 ? Number(entry.target_id) : null;
+}
 async function flushQueues() {
+  // Queue entries created on a first-use offline install contain stable source
+  // references. Fetch the PC catalogue before attempting to map them to DB IDs.
+  if (appState.revision == null) {
+    const initial = await apiFetch('/sync');
+    const synced = await responseJson(initial);
+    if (synced.changed && synced.catalog) replaceCatalog(synced.catalog);
+    appState.revision = synced.revision || null;
+    appState.lastSync = new Date().toISOString();
+    await persist();
+  }
   for (const entry of [...appState.feedbackQueue]) {
-    const response = await apiFetch('/feedback', { method: 'POST', body: JSON.stringify(entry) });
+    const targetId = resolveQueuedFeedback(entry);
+    if (!targetId) continue;
+    const response = await apiFetch('/feedback', {
+      method: 'POST',
+      body: JSON.stringify({ ...entry, target_id: targetId }),
+    });
     await responseJson(response);
     appState.feedbackQueue = appState.feedbackQueue.filter(item => item.client_event_id !== entry.client_event_id);
     await persist();
   }
   for (const entry of [...appState.questionQueue]) {
-    const response = await apiFetch('/questions', { method: 'POST', body: JSON.stringify(entry) });
+    const machine = entry.machine_code ? findStableMachine(entry.machine_code) : null;
+    const payload = { ...entry, machine_id: machine && Number(machine.id) > 0 ? Number(machine.id) : null };
+    delete payload.machine_code;
+    if (payload.context?.node_number != null && machine) {
+      const node = asArray(machine.nodes).find(item => Number(item.number) === Number(payload.context.node_number));
+      if (node) payload.context.node_id = Number(node.id) > 0 ? Number(node.id) : null;
+      delete payload.context.node_number;
+    }
+    if (payload.context?.problem_title && machine) {
+      const problem = asArray(machine.problems).find(item => item.title === payload.context.problem_title);
+      if (problem) payload.context.problem_id = Number(problem.id) > 0 ? Number(problem.id) : null;
+      delete payload.context.problem_title;
+    }
+    const response = await apiFetch('/questions', { method: 'POST', body: JSON.stringify(payload) });
     await responseJson(response);
     appState.questionQueue = appState.questionQueue.filter(item => item.client_event_id !== entry.client_event_id);
     await persist();
@@ -444,13 +605,17 @@ async function syncNow() {
     const suffix = appState.revision ? `?revision=${encodeURIComponent(appState.revision)}` : '';
     const syncResponse = await apiFetch(`/sync${suffix}`);
     const syncResult = await responseJson(syncResponse);
-    if (syncResult.changed && syncResult.catalog) appState.catalog = syncResult.catalog;
+    if (syncResult.changed && syncResult.catalog) replaceCatalog(syncResult.catalog);
     appState.revision = syncResult.revision;
     appState.lastSync = new Date().toISOString();
     await persist();
+    const mediaResult = await syncInternalMedia();
     await flushQueues();
     const queued = appState.feedbackQueue.length + appState.questionQueue.length;
-    setMessage(queued ? `Каталог обновлён; не отправлено: ${queued}. Повторим при связи.` : 'Синхронизация завершена. Каталог и очередь обновлены.', 'good');
+    const mediaMessage = mediaResult.failed ? ` Не удалось сохранить изображений: ${mediaResult.failed}; повторите синхронизацию при связи.` :
+      mediaResult.downloaded ? ` Внутренних изображений передано по LAN: ${mediaResult.downloaded}.` : '';
+    const queueMessage = queued ? ` Не отправлено записей очереди: ${queued}. Повторим при связи.` : '';
+    setMessage(`Синхронизация завершена. Каталог обновлён.${mediaMessage}${queueMessage}`, mediaResult.failed ? 'bad' : 'good');
   } catch (error) {
     setMessage(error.message, 'bad');
   } finally {
@@ -460,7 +625,21 @@ async function syncNow() {
 }
 
 async function queueFeedback(targetType, targetId, helpful) {
-  appState.feedbackQueue.push({ client_event_id: newEventId(), target_type: targetType, target_id: Number(targetId), helpful: helpful === 'true' });
+  const machine = findMachine();
+  const node = targetType === 'node' ? findNode(machine, targetId) : null;
+  const problem = targetType === 'problem' ? findProblem(machine, targetId) : null;
+  const numericId = Number(targetId);
+  appState.feedbackQueue.push({
+    client_event_id: newEventId(),
+    target_type: targetType,
+    target_id: Number.isSafeInteger(numericId) && numericId > 0 ? numericId : null,
+    helpful: helpful === 'true',
+    stable_ref: machine?.code ? {
+      machine_code: machine.code,
+      ...(node ? { node_number: node.number } : {}),
+      ...(problem ? { problem_title: problem.title } : {}),
+    } : null,
+  });
   await persist();
   setMessage('Ответ сохранён на устройстве и будет отправлен при подключении.', 'good');
   if (navigator.onLine !== false && (appState.serverUrl || (import.meta.env.DEV && !isNative))) {
@@ -495,9 +674,16 @@ async function saveQuestion(event) {
   const node = findNode(machine);
   const problem = findProblem(machine);
   const context = { screen: ui.screen };
-  if (node) context.node_id = node.id;
-  if (problem) context.problem_id = problem.id;
-  appState.questionQueue.push({ client_event_id: newEventId(), machine_id: machine?.id ?? null, question, context });
+  if (node) context.node_number = node.number;
+  if (problem) context.problem_title = problem.title;
+  const numericMachineId = Number(machine?.id);
+  appState.questionQueue.push({
+    client_event_id: newEventId(),
+    machine_id: Number.isSafeInteger(numericMachineId) && numericMachineId > 0 ? numericMachineId : null,
+    machine_code: machine?.code ?? null,
+    question,
+    context,
+  });
   await persist();
   closeModal();
   setMessage('Вопрос сохранён. Он отправится при подключении к серверу.', 'good');
@@ -516,7 +702,8 @@ async function handleAction(action, element) {
   else if (action === 'open-problem') go('problem', { problemId: element.dataset.id });
   else if (action === 'open-search-result') {
     if (element.dataset.kind === 'node') go('node', { machineId: element.dataset.machineId, nodeId: element.dataset.id });
-    else go('problem', { machineId: element.dataset.machineId, problemId: element.dataset.id });
+    else if (element.dataset.kind === 'problem') go('problem', { machineId: element.dataset.machineId, problemId: element.dataset.id });
+    else { ui.tab = 'scheme'; go('machine', { machineId: element.dataset.machineId }); }
   } else if (action === 'tab') { ui.tab = element.dataset.tab; render(); }
   else if (action === 'close-modal') closeModal();
   else if (action === 'ask') openQuestion(element.dataset.context);

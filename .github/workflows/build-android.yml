@@ -1,7 +1,7 @@
-name: Build Windows EXE and Android APK
+name: Build Windows EXE and Android APK — GRN-471 demo (stages 4–6)
 
 on:
-  # Keep APK builds manual. Windows-only changes use the separate workflow.
+  # Publish the combined APK/EXE prerelease only when explicitly dispatched.
   workflow_dispatch:
 
 permissions:
@@ -41,13 +41,13 @@ jobs:
         run: |
           bash ./gradlew --no-daemon assembleDebug
           mkdir -p ../../dist
-          cp app/build/outputs/apk/debug/app-debug.apk ../../dist/CALIBRE-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk ../../dist/Kolibri-GRN-471-demo.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CALIBRE-build-android
-          path: dist/CALIBRE-debug.apk
+          name: Kolibri-stage4-6-android
+          path: dist/Kolibri-GRN-471-demo.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -83,6 +83,8 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check -r requirements-desktop.txt
           if ($LASTEXITCODE -ne 0) { throw "Установка Python-зависимостей завершилась с кодом $LASTEXITCODE" }
+          python -m compileall -q calibre server.py desktop_launcher.py migrations/versions
+          if ($LASTEXITCODE -ne 0) { throw "Проверка Python-исходников не пройдена" }
 
       - name: Bundle third-party license notices
         shell: pwsh
@@ -90,11 +92,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path build-notices | Out-Null
           Copy-Item THIRD_PARTY_NOTICES.md build-notices/THIRD_PARTY_NOTICES.md
           Copy-Item licenses/PyInstaller-COPYING.txt build-notices/PyInstaller-COPYING.txt
+          $pdfiumLicenses = python -c "import importlib.metadata as m; print(m.distribution('pypdfium2')._path / 'licenses')"
+          if (-not (Test-Path $pdfiumLicenses)) { throw "Не найдены bundled notices PDFium" }
+          New-Item -ItemType Directory -Force -Path build-notices/pypdfium2 | Out-Null
+          Copy-Item "$pdfiumLicenses/*" build-notices/pypdfium2/ -Recurse
 
       - name: Build and smoke-test the console diagnostic executable
         shell: pwsh
         run: |
-          python -m PyInstaller --clean --noconfirm --onefile --console --name CALIBRE-PC-selftest `
+          python -m PyInstaller --clean --noconfirm --onefile --console --name Kolibri-GRN-471-demo-selftest `
             --add-data "alembic.ini;." `
             --add-data "migrations;migrations" `
             --add-data "web;web" `
@@ -105,6 +111,7 @@ jobs:
             --collect-all sqlalchemy `
             --collect-all pypdf `
             --collect-all pdfplumber `
+            --collect-all pypdfium2 `
             --collect-all pdfminer `
             --collect-all snowballstemmer `
             --collect-all rapidfuzz `
@@ -112,8 +119,8 @@ jobs:
             --collect-all httpx `
             --hidden-import sqlalchemy.dialects.sqlite `
             desktop_launcher.py
-          if (-not (Test-Path "dist/CALIBRE-PC-selftest.exe")) { throw "Не создан диагностический EXE" }
-          $output = & "dist/CALIBRE-PC-selftest.exe" --self-test 2>&1 | Out-String
+          if (-not (Test-Path "dist/Kolibri-GRN-471-demo-selftest.exe")) { throw "Не создан диагностический EXE" }
+          $output = & "dist/Kolibri-GRN-471-demo-selftest.exe" --self-test 2>&1 | Out-String
           $testCode = $LASTEXITCODE
           if ($testCode -ne 0) {
             $details = $output.Replace("`r", " ").Replace("`n", " | ")
@@ -124,7 +131,7 @@ jobs:
       - name: Build the one-file Windows launcher
         shell: pwsh
         run: |
-          python -m PyInstaller --clean --noconfirm --onefile --windowed --name CALIBRE-PC `
+          python -m PyInstaller --clean --noconfirm --onefile --windowed --name Kolibri-GRN-471-demo `
             --add-data "alembic.ini;." `
             --add-data "migrations;migrations" `
             --add-data "web;web" `
@@ -135,6 +142,7 @@ jobs:
             --collect-all sqlalchemy `
             --collect-all pypdf `
             --collect-all pdfplumber `
+            --collect-all pypdfium2 `
             --collect-all pdfminer `
             --collect-all snowballstemmer `
             --collect-all rapidfuzz `
@@ -142,13 +150,13 @@ jobs:
             --collect-all httpx `
             --hidden-import sqlalchemy.dialects.sqlite `
             desktop_launcher.py
-          if (-not (Test-Path "dist/CALIBRE-PC.exe")) { throw "Не создан dist/CALIBRE-PC.exe" }
+          if (-not (Test-Path "dist/Kolibri-GRN-471-demo.exe")) { throw "Не создан dist/Kolibri-GRN-471-demo.exe" }
 
       - name: Upload Windows EXE artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CALIBRE-build-windows
-          path: dist/CALIBRE-PC.exe
+          name: Kolibri-stage4-6-windows
+          path: dist/Kolibri-GRN-471-demo.exe
           if-no-files-found: error
           retention-days: 30
 
@@ -159,7 +167,7 @@ jobs:
       - name: Download both build artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: CALIBRE-build-*
+          pattern: Kolibri-stage4-6-*
           merge-multiple: true
           path: release-assets
 
@@ -167,14 +175,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="stage3-test-${GITHUB_RUN_NUMBER}"
-          sha256sum release-assets/CALIBRE-debug.apk release-assets/CALIBRE-PC.exe > release-assets/SHA256SUMS.txt
+          tag="stage4-6-grn471-demo-${GITHUB_RUN_NUMBER}"
+          sha256sum release-assets/Kolibri-GRN-471-demo.apk release-assets/Kolibri-GRN-471-demo.exe > release-assets/SHA256SUMS.txt
           gh release create "$tag" \
-            release-assets/CALIBRE-debug.apk \
-            release-assets/CALIBRE-PC.exe \
+            release-assets/Kolibri-GRN-471-demo.apk \
+            release-assets/Kolibri-GRN-471-demo.exe \
             release-assets/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --prerelease \
-            --title "Kolibri — тестовые файлы этапа 3 (сборка ${GITHUB_RUN_NUMBER})" \
-            --notes "Тестовые файлы: автономный EXE для Windows открывает браузерный предпросмотр и APK для Android. Релиз предназначен для проверки установки и интерфейса на Windows и Android."
+            --title "Kolibri — ГРН-471 демо, этапы 4–6 (${GITHUB_RUN_NUMBER})" \
+            --notes "Демо-срез ГРН-471 Kolibri v4 для проверки этапов 4–6: Windows EXE с локальной админкой, проверкой PDF и Ollama-интеграцией; Android APK с подготовленным офлайн-каталогом. В релиз не включены исходный PDF и извлечённые из него изображения. Ollama и модели устанавливаются отдельно; без них доступны подготовленные данные, поиск и просмотр. Сборки предназначены для теста владельцем, не являются сертифицированной инструкцией или обученной моделью."

@@ -63,17 +63,25 @@ def run_self_test() -> None:
             admin_js = response.read().decode("utf-8")
             if (response.status != 200 or "/api/admin/nodes" not in admin_js
                     or "/api/admin/media" not in admin_js
-                    or "/api/admin/assistant/answer" not in admin_js):
-                raise RuntimeError("Windows EXE self-test: ресурсы панели техники и диагностики не загрузились")
+                    or "/api/admin/assistant/answer" not in admin_js
+                    or "/api/admin/analysis" not in admin_js
+                    or "/api/admin/ollama" not in admin_js):
+                raise RuntimeError("Windows EXE self-test: ресурсы панели, анализа и Ollama не загрузились")
         if "Проверить неисправность по руководству" not in admin_html:
             raise RuntimeError("Windows EXE self-test: форма диагностики неисправностей не загрузилась")
+        if "Задать вопрос по руководству — Ollama локально" not in admin_html:
+            raise RuntimeError("Windows EXE self-test: локальная форма вопросов по документу не загрузилась")
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/admin/static/admin/kolibri-mark.png", timeout=10) as response:
             if response.status != 200 or not response.headers.get("Content-Type", "").startswith("image/png"):
                 raise RuntimeError("Windows EXE self-test: логотип Kolibri не загрузился")
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/admin/assistant/status", timeout=10) as response:
             ai_status = json.loads(response.read())
-            if ai_status.get("reason") != "not_configured":
-                raise RuntimeError("Windows EXE self-test: безопасный статус ИИ не получен")
+            if ai_status.get("inference_network") != "loopback only; no cloud fallback":
+                raise RuntimeError("Windows EXE self-test: безопасный статус локального помощника не получен")
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/admin/ollama/status", timeout=10) as response:
+            ollama_status = json.loads(response.read())
+            if ollama_status.get("inference_network") != "loopback only; no cloud fallback":
+                raise RuntimeError("Windows EXE self-test: Ollama не ограничена локальным адресом")
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/mobile/sync", timeout=10) as response:
             payload = json.loads(response.read())
         if not payload.get("changed") or not payload.get("catalog", {}).get("demo_machines"):

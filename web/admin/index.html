@@ -33,6 +33,19 @@
       </ol>
     </section>
 
+    <section class="panel local-ai-panel" id="local-ai-panel">
+      <div class="panel-heading"><span class="step-number">AI</span><div><p class="eyebrow">ТОЛЬКО ЛОКАЛЬНЫЙ OLLAMA</p><h2>Модели без облака</h2></div><span class="saved-badge" id="ollama-state">Проверяем…</span></div>
+      <p class="explanation">Разбор PDF и вопросы к документу выполняются на этом ПК через localhost. После загрузки модели соединение с интернетом не используется. Без Ollama готовые карточки и локальная админка продолжают работать.</p>
+      <div class="ollama-settings">
+        <label class="field"><span>Инструктивная модель, 7–8B</span><input id="ollama-chat-model" value="qwen3:8b" maxlength="120"></label>
+        <label class="field"><span>Модель для поиска/эмбеддингов</span><input id="ollama-search-model" value="bge-m3" maxlength="120"></label>
+        <div class="form-actions"><button class="button button-secondary" id="save-ollama" type="button">Сохранить модели</button><button class="button button-primary" id="download-chat-model" type="button">Скачать инструктивную модель</button><button class="button button-secondary" id="download-search-model" type="button">Скачать модель поиска</button></div>
+      </div>
+      <p class="status" id="ollama-status-detail" role="status" aria-live="polite"></p>
+      <div class="download-progress" id="ollama-download-progress" hidden><progress max="100" value="0"></progress><span id="ollama-download-label"></span></div>
+      <p class="privacy-note">Рекомендуемый профиль: Qwen3 8B Q4 для русского текста и BGE-M3 для многоязычного поиска. Реальная скорость на ПК пользователя не измерялась. Если Ollama не установлена, установите её отдельно; PDF не покидает этот компьютер.</p>
+    </section>
+
     <section class="panel wizard" id="wizard-panel">
       <div class="panel-heading"><span class="step-number">1</span><div><p class="eyebrow">НАЧИНАЕМ С РУКОВОДСТВА</p><h2>Загрузить PDF</h2></div></div>
       <p class="explanation">Kolibri сохранит документ на этом компьютере, извлечёт доступный текст и построит локальный поисковый индекс с привязкой к страницам. Это не дообучение языковой модели.</p>
@@ -68,12 +81,22 @@
         </form>
         <div id="diagnostic-result" class="diagnostic-result" role="status" aria-live="polite" hidden></div>
       </details>
+      <details class="diagnostic-panel" id="manual-question-panel">
+        <summary>Задать вопрос по руководству — Ollama локально</summary>
+        <p>Ответ формируется выбранной локальной моделью. Цитаты и числа проверяются до показа; если Ollama недоступна, готовые карточки остаются доступны.</p>
+        <form id="manual-question-form" class="diagnostic-form">
+          <label class="field"><span>Вопрос к загруженному документу</span><input name="question" maxlength="2000" required placeholder="Например: какие работы входят в ЕТО?"></label>
+          <button class="button button-primary" type="submit">Спросить локальную модель</button>
+        </form>
+        <div id="manual-question-result" class="diagnostic-result" role="status" aria-live="polite" hidden></div>
+      </details>
       <div class="add-grid">
         <form id="photo-form" class="add-card">
           <h3>Добавить фото</h3><p>Снимок машины или отдельного узла.</p>
           <label class="field"><span>Подпись</span><input name="caption" maxlength="300" placeholder="Например: вид слева"></label>
           <label class="field"><span>К какому узлу относится</span><select name="node_id" id="photo-node"><option value="">Фото всей машины / без узла</option></select></label>
           <label class="field"><span>Файл JPG, PNG или WebP</span><input name="file" type="file" accept="image/jpeg,image/png,image/webp" required></label>
+          <label class="field"><span><input name="sync_to_phones" type="checkbox" value="true"> Разрешить передачу в приложение по локальной Wi‑Fi/LAN-сети</span><small>Фото останется внутренним и не будет опубликовано в интернете.</small></label>
           <button class="button button-secondary" type="submit">Сохранить фото</button><p class="status" id="photo-status" role="status"></p>
         </form>
         <form id="node-form" class="add-card">
@@ -88,6 +111,27 @@
         <section class="subsection"><div class="subheading"><h3>Фотографии</h3><span id="photo-count">0</span></div><div id="photo-list" class="photo-list"><p class="empty">Загруженные фото появятся здесь.</p></div></section>
       </div>
       <section class="subsection docs-subsection"><div class="subheading"><h3>Руководства</h3><span id="document-count">0</span></div><div id="document-list" class="item-list"><p class="empty">Документы ещё не добавлены.</p></div></section>
+    </section>
+
+    <section class="panel analysis-panel" id="analysis-panel" hidden>
+      <div class="panel-heading"><span class="step-number">AI</span><div><p class="eyebrow">ПРОВЕРКА ИСТОЧНИКОВ</p><h2>Разбор документа</h2></div><span class="saved-badge" id="analysis-state">Ожидание</span></div>
+      <div class="analysis-progress"><progress id="analysis-progress" max="100" value="0"></progress><span id="analysis-stage">Ожидает загрузки PDF</span></div>
+      <div class="form-actions analysis-actions"><button class="button button-secondary" id="resume-analysis" type="button" hidden>Возобновить разбор</button><button class="button button-secondary" id="publish-auto" type="button" disabled>Опубликовать автопроверенное</button><button class="button button-primary" id="publish-human" type="button" disabled>Опубликовать проверенное человеком</button></div>
+      <p class="privacy-note">Автопроверка подтверждает наличие цитаты и чисел на указанной странице, но не заменяет экспертную проверку смысла. Рисунки PDF в APK/EXE не входят.</p>
+      <div class="analysis-workspace">
+        <aside class="analysis-review-list">
+          <label class="field"><span>Категория карточек</span><select id="claim-filter"><option value="all">Все разделы</option><option value="components">Узлы</option><option value="adjustments">Регулировки</option><option value="technical_norms">Технические нормы</option><option value="maintenance_norms">Нормы обслуживания</option><option value="maintenance">Обслуживание</option><option value="faults">Неисправности</option><option value="safety">Безопасность</option><option value="gaps">Пробелы документа</option></select></label>
+          <div id="claim-list" class="claim-list"><p class="empty">Карточки появятся после локального разбора.</p></div>
+        </aside>
+        <section class="claim-review-detail">
+          <h3 id="claim-title">Выберите карточку</h3>
+          <p id="claim-status" class="status"></p>
+          <label class="field"><span>Данные карточки (JSON — можно исправить)</span><textarea id="claim-editor" rows="9" spellcheck="false" disabled></textarea></label>
+          <div class="reviewer-fields"><label class="field"><span>Проверил человек</span><input id="reviewer-name" maxlength="240" placeholder="Имя проверяющего"></label><label class="field"><span>Основание или замечание</span><input id="reviewer-note" maxlength="1000" placeholder="Обязательно при визуальной/ручной проверке"></label></div>
+          <div class="form-actions"><button class="button button-secondary" id="edit-claim" type="button" disabled>Сохранить правки</button><button class="button button-primary" id="verify-claim" type="button" disabled>Подтвердить</button><button class="button button-danger" id="reject-claim" type="button" disabled>Отклонить</button></div>
+          <iframe id="analysis-pdf" title="Страница PDF с цитатой" loading="lazy"></iframe>
+        </section>
+      </div>
     </section>
 
     <footer class="footer-note">Kolibri · локальная база техники. PDF-источники и фотографии доступны только на компьютере-сервере.</footer>

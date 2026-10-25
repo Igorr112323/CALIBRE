@@ -8,5 +8,7 @@
 *.jpg
 *.jpeg
 
-# Per-run diagnostics and local AI output stay out of Git.
+# Local gold/reference material and per-run diagnostics stay out of Git.
+*gold*.json
+*эталон*.md
 runs/

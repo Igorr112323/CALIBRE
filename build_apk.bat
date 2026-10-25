@@ -36,10 +36,10 @@ if errorlevel 1 goto :error
 echo [5/5] Копирование APK в dist...
 cd /d "%~dp0"
 if not exist "dist" mkdir "dist"
-copy /Y "mobile\android\app\build\outputs\apk\debug\app-debug.apk" "dist\CALIBRE-debug.apk" >nul
+copy /Y "mobile\android\app\build\outputs\apk\debug\app-debug.apk" "dist\Kolibri-GRN-471-demo.apk" >nul
 if errorlevel 1 goto :error
 echo.
-echo Готово: %~dp0dist\CALIBRE-debug.apk
+echo Готово: %~dp0dist\Kolibri-GRN-471-demo.apk
 echo Это отладочная сборка для установки и проверки, не публикационный релиз.
 pause
 exit /b 0
