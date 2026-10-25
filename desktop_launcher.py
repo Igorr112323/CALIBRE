@@ -55,6 +55,17 @@ def run_self_test() -> None:
             html = response.read().decode("utf-8")
             if response.status != 200 or "./assets/" not in html:
                 raise RuntimeError("Windows EXE self-test: встроенная HTML-страница не открылась")
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/admin", timeout=10) as response:
+            admin_html = response.read().decode("utf-8")
+            if response.status != 200 or "Kolibri — панель знаний" not in admin_html:
+                raise RuntimeError("Windows EXE self-test: админ-панель Kolibri не открылась")
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/admin/static/admin/admin.js", timeout=10) as response:
+            if response.status != 200 or "assistant/answer" not in response.read().decode("utf-8"):
+                raise RuntimeError("Windows EXE self-test: ресурсы панели документов не загрузились")
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/admin/assistant/status", timeout=10) as response:
+            ai_status = json.loads(response.read())
+            if ai_status.get("reason") != "not_configured":
+                raise RuntimeError("Windows EXE self-test: безопасный статус ИИ не получен")
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/mobile/sync", timeout=10) as response:
             payload = json.loads(response.read())
         if not payload.get("changed") or not payload.get("catalog", {}).get("demo_machines"):
@@ -78,13 +89,13 @@ def main() -> None:
     from tkinter import messagebox
 
     root = tk.Tk()
-    root.title("КАЛИБР — просмотр на компьютере")
+    root.title("Kolibri — экспертный помощник для ПК")
     root.geometry("470x320")
     root.resizable(False, False)
     root.configure(bg="#eef2ef")
 
     state: dict[str, object] = {"servers": [], "threads": [], "error": None, "ready": False, "page_url": "", "phone_url": ""}
-    tk.Label(root, text="КАЛИБР", font=("Segoe UI", 17, "bold"), fg="white", bg="#2e7d32", pady=11).pack(fill="x")
+    tk.Label(root, text="Kolibri", font=("Segoe UI", 17, "bold"), fg="white", bg="#2e7d32", pady=11).pack(fill="x")
     status = tk.Label(root, text="Готовим страницу и локальную базу…", font=("Segoe UI", 11), bg="#eef2ef", fg="#1b1f1d", wraplength=440)
     status.pack(pady=(13, 5))
 
@@ -96,7 +107,7 @@ def main() -> None:
     phone_address = tk.StringVar(value="Определяем адрес компьютера…")
     tk.Label(root, textvariable=phone_address, font=("Segoe UI", 10), fg="#1b1f1d", bg="#eef2ef").pack(pady=(1, 6))
 
-    help_text = tk.Label(root, text="Предпросмотр браузера доступен только на этом ПК.\nДля связи с телефоном разрешите частную сеть в Windows Firewall.\nЗакройте это окно, чтобы остановить КАЛИБР.", font=("Segoe UI", 8), fg="#5f6b64", bg="#eef2ef", justify="center")
+    help_text = tk.Label(root, text="Предпросмотр браузера доступен только на этом ПК.\nДля связи с телефоном разрешите частную сеть в Windows Firewall.\nЗакройте это окно, чтобы остановить Kolibri.", font=("Segoe UI", 8), fg="#5f6b64", bg="#eef2ef", justify="center")
     help_text.pack(pady=(0, 7))
 
     buttons = tk.Frame(root, bg="#eef2ef")
@@ -182,7 +193,7 @@ def main() -> None:
                 if not all(thread.is_alive() for thread in threads):
                     raise RuntimeError("Один из локальных серверов завершился до открытия страницы.")
                 time.sleep(0.1)
-            raise TimeoutError("Серверы КАЛИБР не успели запуститься.")
+            raise TimeoutError("Серверы Kolibri не успели запуститься.")
         except Exception:
             state["error"] = traceback.format_exc()
 
@@ -202,8 +213,8 @@ def main() -> None:
                 status.configure(text="Страница готова. Нажмите «Открыть страницу».", fg="#765500")
             return
         if state.get("error"):
-            status.configure(text="Не удалось запустить КАЛИБР.", fg="#a22121")
-            messagebox.showerror("КАЛИБР", str(state["error"]))
+            status.configure(text="Не удалось запустить Kolibri.", fg="#a22121")
+            messagebox.showerror("Kolibri", str(state["error"]))
             stop_and_close()
             return
         root.after(100, poll_startup)

@@ -1,9 +1,7 @@
 name: Build Windows EXE and Android APK
 
 on:
-  push:
-    branches:
-      - arena/95c59e81-calibre
+  # Keep APK builds manual. Windows-only changes use the separate workflow.
   workflow_dispatch:
 
 permissions:
@@ -105,6 +103,13 @@ jobs:
             --collect-all alembic `
             --collect-all uvicorn `
             --collect-all sqlalchemy `
+            --collect-all pypdf `
+            --collect-all pdfplumber `
+            --collect-all pdfminer `
+            --collect-all snowballstemmer `
+            --collect-all rapidfuzz `
+            --collect-all PIL `
+            --collect-all httpx `
             --hidden-import sqlalchemy.dialects.sqlite `
             desktop_launcher.py
           if (-not (Test-Path "dist/CALIBRE-PC-selftest.exe")) { throw "Не создан диагностический EXE" }
@@ -128,6 +133,13 @@ jobs:
             --collect-all alembic `
             --collect-all uvicorn `
             --collect-all sqlalchemy `
+            --collect-all pypdf `
+            --collect-all pdfplumber `
+            --collect-all pdfminer `
+            --collect-all snowballstemmer `
+            --collect-all rapidfuzz `
+            --collect-all PIL `
+            --collect-all httpx `
             --hidden-import sqlalchemy.dialects.sqlite `
             desktop_launcher.py
           if (-not (Test-Path "dist/CALIBRE-PC.exe")) { throw "Не создан dist/CALIBRE-PC.exe" }

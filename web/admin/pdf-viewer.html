@@ -2,29 +2,19 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#176b43"><title>КАЛИБР — страница методички</title>
-  <link rel="stylesheet" href="/admin/static/shared.css">
+  <meta name="theme-color" content="#176b43"><title>Kolibri — источник PDF</title>
+  <link rel="stylesheet" href="/admin/static/admin/admin.css">
   <style>
-    body{background:#edf1ee}.viewer{max-width:1100px;margin:18px auto;padding:0 14px}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid #dfe9e0;border-radius:14px;padding:10px;margin-bottom:10px}.toolbar input{min-width:100px;flex:1;padding:9px;border:1px solid #dfe9e0;border-radius:8px}.toolbar button{padding:9px 12px;border:0;border-radius:8px;background:#176b43;color:white;font-weight:700}.toolbar .secondary{background:#e7f1e8;color:#176b43}.status{color:#718077;font-size:13px;padding:4px 2px;min-height:24px}.page-wrap{overflow:auto;text-align:center;background:#dfe5e0;border-radius:12px;padding:16px;min-height:65vh}.pdf-page{position:relative;display:inline-block;background:#fff;box-shadow:0 3px 16px #0002;line-height:0}.pdf-page canvas{display:block}.text-layer{position:absolute;inset:0;overflow:hidden;line-height:1;opacity:1;text-align:initial;transform-origin:0 0;z-index:1}.text-layer span{color:transparent;position:absolute;white-space:pre;cursor:text;transform-origin:0 0}.text-layer span.cite-highlight{background:rgba(255,213,0,.58);outline:1px solid rgba(205,158,0,.4)}.page-count{font-variant-numeric:tabular-nums;color:#536259;font-size:13px;white-space:nowrap}@media(max-width:600px){.viewer{padding:0 8px}.page-wrap{padding:6px}}
+    body{background:#edf1ee}.viewer{max-width:1180px;margin:20px auto;padding:0 16px}.toolbar,.quote-box{display:flex;gap:9px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid #dfe9e0;border-radius:12px;padding:11px;margin-bottom:10px}.toolbar input{min-width:80px;flex:1;padding:9px;border:1px solid #dfe9e0;border-radius:8px;font-family:inherit;font-size:12px}.toolbar button{padding:9px 12px;border:0;border-radius:8px;background:#176b43;color:#fff;font-weight:700;cursor:pointer}.toolbar button.secondary{background:#e7f1e8;color:#176b43}.status{color:#718077;font-size:12px;padding:3px 2px;min-height:22px}.pdf-frame{width:100%;height:calc(100vh - 205px);min-height:520px;border:1px solid #dfe5df;border-radius:10px;background:#dfe5e0}.quote-box{display:block;color:#536259;font-size:12px;line-height:1.6}.quote-box strong{display:block;color:#176b43;font-size:9px;letter-spacing:.1em;margin-bottom:4px}.topbar{height:64px;background:#fff;border-bottom:1px solid #dfe9e0;display:flex;align-items:center;padding:0 20px;gap:10px}.topbar .brand-symbol{width:36px;height:36px;border-radius:11px;background:#176b43;color:white;display:grid;place-items:center;font-weight:800}.topbar strong,.topbar small{display:block}.topbar strong{color:#105333;font-size:15px}.topbar small{color:#718077;font-size:10px;margin-top:3px}.topbar a{margin-left:auto;color:#176b43;font-size:11px}@media(max-width:600px){.viewer{padding:0 8px}.pdf-frame{height:calc(100vh - 240px);min-height:440px}}
   </style>
 </head>
 <body>
-<header class="topbar"><div class="brand-mark">К</div><div><strong>КАЛИБР</strong><small>Страница источника</small></div><a href="/admin" style="margin-left:auto;color:#176b43">В админку</a></header>
+<header class="topbar"><span class="brand-symbol">K</span><div><strong>Kolibri</strong><small>Страница документа-источника</small></div><a href="/admin">В панель</a></header>
 <main class="viewer">
-  <div class="toolbar">
-    <input id="file-url" aria-label="Адрес PDF" placeholder="PDF-файл из локальной базы">
-    <input id="quote" aria-label="Цитата для подсветки" placeholder="Цитата для подсветки">
-    <button id="open">Открыть страницу</button>
-  </div>
-  <div class="toolbar">
-    <button id="previous" class="secondary" title="Предыдущая страница">←</button>
-    <span class="page-count"><input id="page-number" type="number" value="1" min="1" style="width:64px"> / <span id="page-total">—</span></span>
-    <button id="next" class="secondary" title="Следующая страница">→</button>
-    <button id="zoom-out" class="secondary">−</button><button id="zoom-in" class="secondary">+</button>
-    <span class="page-count" id="zoom-label">100%</span>
-  </div>
-  <div class="status" id="status" role="status">Просмотрщик PDF.js работает локально. Откройте страницу источника из карточки или укажите локальный PDF.</div>
-  <div class="page-wrap"><div class="pdf-page" id="pdf-page" hidden><canvas id="canvas"></canvas><div class="text-layer" id="text-layer"></div></div></div>
+  <div class="toolbar"><input id="file-url" aria-label="Адрес локального PDF" placeholder="Адрес PDF из локальной базы"><input id="page-number" type="number" value="1" min="1" aria-label="Номер страницы"><button id="open">Открыть страницу</button><a id="download" hidden>Скачать PDF</a></div>
+  <div class="quote-box" id="quote-box" hidden><strong>ЦИТАТА ИЗ ОТВЕТА</strong><span id="quote-text"></span></div>
+  <div class="status" id="status" role="status">Откройте документ, загруженный в локальную базу Kolibri.</div>
+  <iframe class="pdf-frame" id="pdf-frame" title="Документ PDF" hidden></iframe>
 </main>
-<script type="module" src="/admin/static/admin/pdf-viewer.js"></script>
+<script src="/admin/static/admin/pdf-viewer.js" defer></script>
 </body></html>

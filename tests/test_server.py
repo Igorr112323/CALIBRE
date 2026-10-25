@@ -50,8 +50,9 @@ class ServerStageTwoTests(unittest.IsolatedAsyncioTestCase):
     async def test_admin_page_is_available_from_localhost(self):
         response = await self.client.get("/admin")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Админка проекта", response.text)
-        self.assertEqual((await self.client.get("/admin/static/shared.css")).status_code, 200)
+        self.assertIn("Kolibri — панель знаний", response.text)
+        self.assertEqual((await self.client.get("/admin/static/admin/admin.css")).status_code, 200)
+        self.assertEqual((await self.client.get("/admin/static/admin/admin.js")).status_code, 200)
 
     async def test_phone_listener_variant_does_not_mount_browser_preview(self):
         if not PREVIEW_ROOT.is_dir():
@@ -74,17 +75,15 @@ class ServerStageTwoTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await network.get("/preview/")).status_code, 403)
             self.assertEqual((await network.get("/preview/assets/missing.js")).status_code, 403)
 
-    async def test_local_pdfjs_viewer_and_vendor_are_served_without_cdn(self):
+    async def test_local_pdf_viewer_uses_browser_native_reader_without_vendor_cdn(self):
         viewer = await self.client.get("/admin/static/admin/pdf-viewer.html")
         script = await self.client.get("/admin/static/admin/pdf-viewer.js")
-        library = await self.client.get("/admin/static/admin/vendor/pdfjs/build/pdf.min.mjs")
         self.assertEqual(viewer.status_code, 200)
         self.assertIn("pdf-viewer.js", viewer.text)
         self.assertNotIn("https://", viewer.text)
         self.assertEqual(script.status_code, 200)
-        self.assertIn("/admin/static/admin/vendor/pdfjs/build/pdf.min.mjs", script.text)
-        self.assertEqual(library.status_code, 200)
-        self.assertIn("PDF.js", (await self.client.get("/admin/static/admin/vendor/pdfjs/README.md")).text)
+        self.assertIn("локальной базы Kolibri", script.text)
+        self.assertNotIn("pdf.min.mjs", script.text)
 
     async def test_network_client_is_denied_admin_but_can_ping(self):
         async with self.network_client() as network:
