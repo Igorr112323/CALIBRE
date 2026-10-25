@@ -29,25 +29,12 @@ jobs:
       - name: Check out the session branch
         uses: actions/checkout@v5
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: mobile/package-lock.json
-
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: requirements-desktop.txt
-
-      - name: Build the embedded browser resources
-        working-directory: mobile
-        run: |
-          npm ci
-          npm run build
 
       - name: Install desktop packaging dependencies
         shell: pwsh
@@ -76,7 +63,6 @@ jobs:
             "--add-data", "alembic.ini;." ,
             "--add-data", "migrations;migrations",
             "--add-data", "web;web",
-            "--add-data", "mobile/www;mobile/www",
             "--add-data", "build-notices;licenses",
             "--collect-all", "alembic",
             "--collect-all", "uvicorn",

@@ -43,7 +43,6 @@ from calibre.models import (Adjustment, AnalysisRun, AppSetting, DocumentPage, E
 
 ROOT = Path(__file__).resolve().parent
 WEB_ROOT = ROOT / "web"
-PREVIEW_ROOT = ROOT / "mobile" / "www"
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("CALIBRE_PORT", "8765"))
 
@@ -188,15 +187,15 @@ def local_lan_ip() -> str:
     return "IP-АДРЕС НЕ НАЙДЕН"
 
 
-def create_app(database_url: str | None = None, include_demo: bool = True, enable_preview: bool = True,
-               storage_root: str | Path | None = None) -> FastAPI:
+def create_app(database_url: str | None = None, include_demo: bool = True,
+               storage_root: str | Path | None = None, recover_analysis: bool = True) -> FastAPI:
     engine = make_engine(database_url)
     sessions = initialize_database(engine, include_demo=include_demo)
     app = FastAPI(title="КАЛИБР", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.engine = engine
     app.state.session_factory = sessions
     app.state.data_root = Path(storage_root).resolve() if storage_root is not None else DATA_ROOT.resolve()
-    if enable_preview:
+    if recover_analysis:
         recover_analysis_jobs(app)
 
     @app.middleware("http")
@@ -205,12 +204,11 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
         remote = not is_loopback(request.client.host if request.client else None)
         if remote and (
             path == "/admin" or path.startswith("/admin/")
-            or path == "/preview" or path.startswith("/preview/")
             or path == "/api/admin" or path.startswith("/api/admin/")
         ):
             return JSONResponse(status_code=403, content={
                 "ok": False,
-                "message": "Админка, документы и ИИ-предпросмотр доступны только на компьютере-сервере",
+                "message": "Админка, документы и локальная обработка доступны только на компьютере-сервере",
             })
         if remote and path.startswith("/api/mobile/media/"):
             try:
@@ -1231,9 +1229,7 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
         })
 
     app.mount("/admin/static", StaticFiles(directory=str(WEB_ROOT)), name="admin-static")
-    # Собранный в EXE предпросмотр доступен только с loopback (см. middleware выше).
-    if enable_preview and PREVIEW_ROOT.is_dir():
-        app.mount("/preview", StaticFiles(directory=str(PREVIEW_ROOT), html=True), name="desktop-preview")
+    # Мобильный интерфейс существует только внутри APK; ПК-сервер отдаёт только админку/API.
     return app
 
 

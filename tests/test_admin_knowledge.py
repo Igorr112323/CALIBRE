@@ -50,6 +50,26 @@ class LocalKnowledgeAdminTests(unittest.IsolatedAsyncioTestCase):
             return await self.client.post("/api/admin/documents", data={"machine_id": str(machine_id)},
                                          files={"file": ("РуководствоПоГраблям.pdf", source, "application/pdf")})
 
+    async def test_admin_can_create_edit_machine_without_uploading_pdf(self):
+        created = await self.client.post("/api/admin/machines", json={
+            "code": "KOLIBRI-NEW-01", "manufacturer": "Kolibri", "model": "Новая модель",
+            "machine_type": "Грабли", "description": "Первичная карточка",
+        })
+        self.assertEqual(created.status_code, 201, created.text)
+        machine_id = created.json()["id"]
+        self.assertEqual(created.json()["status"], "draft")
+
+        updated = await self.client.put(f"/api/admin/machines/{machine_id}", json={
+            "manufacturer": "Kolibri Pro", "model": "Обновлённая модель",
+            "machine_type": "Ворошилка", "description": "Изменённая карточка",
+        })
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(updated.json()["model"], "Обновлённая модель")
+        machines = await self.client.get("/api/admin/machines")
+        self.assertEqual(machines.status_code, 200)
+        self.assertEqual(machines.json()[0]["description"], "Изменённая карточка")
+        self.assertFalse(machines.json()[0]["has_documents"])
+
     @unittest.skipUnless(PRIVATE_MANUAL.is_file(), "Частный PDF отсутствует; источник не включается в Git")
     async def test_manual_is_stored_indexed_scoped_and_not_exposed_to_phone(self):
         machine_id = await self.create_machine()

@@ -13,10 +13,10 @@
       <img src="/admin/static/admin/kolibri-mark.png" alt="">
       <span><strong>Kolibri</strong><small>ТЕХНИЧЕСКАЯ БАЗА</small></span>
     </a>
-    <div class="machine-picker" id="machine-picker-wrap" hidden>
-      <label for="machine-select">Техника</label>
+    <div class="machine-picker" id="machine-picker-wrap">
+      <label for="machine-select" id="machine-select-label">Техника</label>
       <select id="machine-select" aria-label="Выбранная техника"></select>
-      <button class="button button-soft" id="new-machine" type="button">＋ Новая</button>
+      <button class="button button-soft" id="new-machine" type="button">＋ Добавить машину</button>
     </div>
     <span class="local-pill"><i></i>Файлы хранятся на этом ПК</span>
   </header>
@@ -44,6 +44,18 @@
       <p class="status" id="ollama-status-detail" role="status" aria-live="polite"></p>
       <div class="download-progress" id="ollama-download-progress" hidden><progress max="100" value="0"></progress><span id="ollama-download-label"></span></div>
       <p class="privacy-note">Рекомендуемый профиль: Qwen3 8B Q4 для русского текста и BGE-M3 для многоязычного поиска. Реальная скорость на ПК пользователя не измерялась. Если Ollama не установлена, установите её отдельно; PDF не покидает этот компьютер.</p>
+    </section>
+
+    <section class="panel machine-create-panel" id="machine-create-panel" hidden>
+      <div class="panel-heading"><span class="step-number">＋</span><div><p class="eyebrow">НОВАЯ ТЕХНИКА</p><h2>Добавить машину</h2></div></div>
+      <p class="explanation">Создайте карточку сейчас, а руководство, узлы и фотографии добавьте позже. Данные хранятся на ПК-сервере.</p>
+      <form id="machine-create-form" class="card-form">
+        <label class="field"><span>Марка</span><input name="manufacturer" required maxlength="160" value="Kolibri"></label>
+        <label class="field"><span>Модель</span><input name="model" required maxlength="160" placeholder="Например, ГРН-471"></label>
+        <label class="field"><span>Тип техники</span><input name="machine_type" required maxlength="160" value="Сельскохозяйственная техника"></label>
+        <label class="field field-wide"><span>Описание <small>необязательно</small></span><textarea name="description" rows="2" maxlength="4000" placeholder="Краткое описание машины"></textarea></label>
+        <div class="form-actions"><span class="status" id="machine-create-status" role="status" aria-live="polite"></span><div><button class="button button-secondary" id="cancel-machine-create" type="button">Отмена</button> <button class="button button-primary" type="submit">Создать машину</button></div></div>
+      </form>
     </section>
 
     <section class="panel wizard" id="wizard-panel">
@@ -90,6 +102,12 @@
         </form>
         <div id="manual-question-result" class="diagnostic-result" role="status" aria-live="polite" hidden></div>
       </details>
+      <form id="manual-upload-form" class="add-card manual-upload-card">
+        <h3>Добавить руководство PDF</h3><p>PDF сохранится на ПК-сервере и будет привязан к выбранной машине.</p>
+        <label class="field"><span>Название руководства <small>необязательно</small></span><input name="title" maxlength="300" placeholder="Например: Руководство по эксплуатации"></label>
+        <label class="field"><span>Файл PDF до 100 МБ</span><input name="file" type="file" accept="application/pdf,.pdf" required></label>
+        <button class="button button-secondary" type="submit">Загрузить руководство</button><p class="status" id="manual-upload-status" role="status" aria-live="polite"></p>
+      </form>
       <div class="add-grid">
         <form id="photo-form" class="add-card">
           <h3>Добавить фото</h3><p>Снимок машины или отдельного узла.</p>

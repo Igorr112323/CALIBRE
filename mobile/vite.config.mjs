@@ -7,7 +7,7 @@ const appRoot = path.resolve(here, '../web/app');
 
 export default defineConfig({
   root: appRoot,
-  // Relative asset paths work both inside the APK and under /preview/ in the PC EXE.
+  // The mobile interface is packaged in the APK; the PC serves only admin/API.
   base: './',
   publicDir: false,
   resolve: {
@@ -15,19 +15,6 @@ export default defineConfig({
       '@capacitor/core': path.resolve(here, 'node_modules/@capacitor/core/dist/index.js'),
       '@capacitor-community/sqlite': path.resolve(here, 'node_modules/@capacitor-community/sqlite/dist/esm/index.js'),
       '@capacitor/network': path.resolve(here, 'node_modules/@capacitor/network/dist/esm/index.js'),
-    },
-  },
-  server: {
-    // Intentional: desktop preview must never be reachable from a phone or another LAN device.
-    host: '127.0.0.1',
-    allowedHosts: ['.e2b.app', 'localhost', '127.0.0.1'],
-    port: 5173,
-    strictPort: true,
-    proxy: {
-      '/api': {
-        target: 'http://127.0.0.1:8765',
-        changeOrigin: false,
-      },
     },
   },
   build: {

@@ -1,4 +1,4 @@
-"""Self-contained Windows launcher: local browser preview plus a phone-only LAN API."""
+"""Windows launcher for the PC admin/server and a phone-only LAN API."""
 from __future__ import annotations
 
 import json
@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 import traceback
+import urllib.error
 import urllib.request
 import webbrowser
 from pathlib import Path
@@ -51,22 +52,30 @@ def run_self_test() -> None:
             time.sleep(0.1)
         if not local_server.started:
             raise TimeoutError("Windows EXE self-test: превышено время запуска")
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/preview/", timeout=10) as response:
-            html = response.read().decode("utf-8")
-            if response.status != 200 or "./assets/" not in html:
-                raise RuntimeError("Windows EXE self-test: встроенная HTML-страница не открылась")
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/preview/", timeout=10)
+        except urllib.error.HTTPError as error:
+            if error.code != 404:
+                raise
+        else:
+            raise RuntimeError("Windows EXE self-test: мобильный интерфейс не должен раздаваться на ПК")
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/admin", timeout=10) as response:
             admin_html = response.read().decode("utf-8")
             if response.status != 200 or "Kolibri — панель знаний" not in admin_html:
                 raise RuntimeError("Windows EXE self-test: админ-панель Kolibri не открылась")
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/admin/static/admin/admin.js", timeout=10) as response:
             admin_js = response.read().decode("utf-8")
-            if (response.status != 200 or "/api/admin/nodes" not in admin_js
+            if (response.status != 200 or "/api/admin/machines" not in admin_js
+                    or "machine-create-form" not in admin_js
+                    or "manual-upload-form" not in admin_js
+                    or "/api/admin/nodes" not in admin_js
                     or "/api/admin/media" not in admin_js
                     or "/api/admin/assistant/answer" not in admin_js
                     or "/api/admin/analysis" not in admin_js
                     or "/api/admin/ollama" not in admin_js):
-                raise RuntimeError("Windows EXE self-test: ресурсы панели, анализа и Ollama не загрузились")
+                raise RuntimeError("Windows EXE self-test: карточки машин, материалы или локальный AI не загрузились")
+        if "Добавить машину" not in admin_html:
+            raise RuntimeError("Windows EXE self-test: форма создания машины не загрузилась")
         if "Проверить неисправность по руководству" not in admin_html:
             raise RuntimeError("Windows EXE self-test: форма диагностики неисправностей не загрузилась")
         if "Задать вопрос по руководству — Ollama локально" not in admin_html:
@@ -110,7 +119,7 @@ def main() -> None:
     root.resizable(False, False)
     root.configure(bg="#eef2ef")
 
-    state: dict[str, object] = {"servers": [], "threads": [], "error": None, "ready": False, "page_url": "", "admin_url": "", "phone_url": ""}
+    state: dict[str, object] = {"servers": [], "threads": [], "error": None, "ready": False, "admin_url": "", "phone_url": ""}
     tk.Label(root, text="Kolibri", font=("Segoe UI", 17, "bold"), fg="white", bg="#2e7d32", pady=11).pack(fill="x")
     status = tk.Label(root, text="Готовим страницу и локальную базу…", font=("Segoe UI", 11), bg="#eef2ef", fg="#1b1f1d", wraplength=440)
     status.pack(pady=(13, 5))
@@ -123,7 +132,7 @@ def main() -> None:
     phone_address = tk.StringVar(value="Определяем адрес компьютера…")
     tk.Label(root, textvariable=phone_address, font=("Segoe UI", 10), fg="#1b1f1d", bg="#eef2ef").pack(pady=(1, 6))
 
-    help_text = tk.Label(root, text="Предпросмотр браузера доступен только на этом ПК.\nДля связи с телефоном разрешите частную сеть в Windows Firewall.\nЗакройте это окно, чтобы остановить Kolibri.", font=("Segoe UI", 8), fg="#5f6b64", bg="#eef2ef", justify="center")
+    help_text = tk.Label(root, text="На ПК открывается только админка; мобильное приложение работает на телефоне.\nДля связи телефона с сервером разрешите частную сеть в Windows Firewall.\nЗакройте это окно, чтобы остановить Kolibri.", font=("Segoe UI", 8), fg="#5f6b64", bg="#eef2ef", justify="center")
     help_text.pack(pady=(0, 7))
 
     buttons = tk.Frame(root, bg="#eef2ef")
@@ -161,7 +170,6 @@ def main() -> None:
                 bundle_root / "alembic.ini",
                 bundle_root / "migrations" / "versions" / "6a404288fafc_initial_catalogue_schema.py",
                 bundle_root / "web" / "admin" / "index.html",
-                bundle_root / "mobile" / "www" / "index.html",
             ]
             missing = [str(path) for path in required if not path.is_file()]
             if missing:
@@ -170,10 +178,10 @@ def main() -> None:
             import uvicorn
             import server as server_module
 
-            # Separate listeners: the browser preview binds only to loopback;
-            # the phone-facing process exposes the limited mobile API, not /preview.
+            # Separate listeners: the PC admin binds only to loopback; the phone
+            # listener exposes only the mobile API. The phone UI is inside the APK.
             local_app = server_module.app
-            phone_app = server_module.create_app(enable_preview=False)
+            phone_app = server_module.create_app(recover_analysis=False)
             local_port = free_port("127.0.0.1")
             try:
                 phone_port = free_port("0.0.0.0", 8765)
@@ -195,7 +203,6 @@ def main() -> None:
             ]
             state["servers"] = servers
             state["threads"] = threads
-            state["page_url"] = f"http://127.0.0.1:{local_port}/preview/"
             state["admin_url"] = f"http://127.0.0.1:{local_port}/admin"
             ip_address = server_module.local_lan_ip()
             state["phone_url"] = f"http://{ip_address}:{phone_port}"
@@ -221,13 +228,13 @@ def main() -> None:
             open_button.configure(state="normal")
             if "НЕ НАЙДЕН" not in str(state["phone_url"]):
                 copy_button.configure(state="normal")
-            status.configure(text="Готово. Страница открывается в браузере автоматически.", fg="#2e7d32")
+            status.configure(text="Готово. Админка откроется в браузере; мобильное приложение используйте на телефоне.", fg="#2e7d32")
             try:
-                opened = webbrowser.open(str(state["page_url"]), new=2, autoraise=True)
+                opened = webbrowser.open(str(state["admin_url"]), new=2, autoraise=True)
                 if not opened:
-                    status.configure(text="Предпросмотр открыт. Нажмите «Открыть админку».", fg="#765500")
+                    status.configure(text="Нажмите «Открыть админку», чтобы открыть страницу на ПК.", fg="#765500")
             except Exception:
-                status.configure(text="Предпросмотр открыт. Нажмите «Открыть админку».", fg="#765500")
+                status.configure(text="Нажмите «Открыть админку», чтобы открыть страницу на ПК.", fg="#765500")
             return
         if state.get("error"):
             status.configure(text="Не удалось запустить Kolibri.", fg="#a22121")

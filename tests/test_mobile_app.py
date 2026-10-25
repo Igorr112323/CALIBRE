@@ -72,21 +72,24 @@ class MobileAppStageThreeTests(unittest.TestCase):
         self.assertIn("return ['Kolibri'", app)
         self.assertNotIn('class="logo">КАЛИБР', html)
 
-    def test_pc_preview_is_bound_to_loopback_and_proxies_only_to_local_server(self):
+    def test_mobile_interface_is_only_shipped_in_apk_not_as_pc_preview(self):
         config = (ROOT / "mobile/vite.config.mjs").read_text(encoding="utf-8")
-        batch = (ROOT / "preview_app.bat").read_text(encoding="utf-8")
-        self.assertIn("host: '127.0.0.1'", config)
-        self.assertIn("target: 'http://127.0.0.1:8765'", config)
-        self.assertNotIn("host: '0.0.0.0'", config)
-        self.assertIn("http://127.0.0.1:5173", batch)
+        package = (ROOT / "mobile/package.json").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/build-android.yml").read_text(encoding="utf-8")
+        server = (ROOT / "server.py").read_text(encoding="utf-8")
+        self.assertIn("mobile interface is packaged in the APK", config)
+        self.assertNotIn("dev:local", package)
+        self.assertNotIn("mobile/www", workflow)
+        self.assertIn("мобильный интерфейс существует только внутри apk", server.lower())
+        self.assertFalse((ROOT / "preview_app.bat").exists())
 
-    def test_windows_launcher_is_onefile_with_loopback_preview_and_auto_opens_browser(self):
+    def test_windows_launcher_is_pc_admin_and_phone_lan_server(self):
         launcher = (ROOT / "desktop_launcher.py").read_text(encoding="utf-8")
         workflow = (ROOT / ".github/workflows/build-android.yml").read_text(encoding="utf-8")
         self.assertIn("webbrowser.open(url", launcher)
         self.assertIn('host="127.0.0.1"', launcher)
         self.assertIn('host="0.0.0.0"', launcher)
-        self.assertIn("create_app(enable_preview=False)", launcher)
+        self.assertIn("phone_app = server_module.create_app(recover_analysis=False)", launcher)
         self.assertIn("LOCALAPPDATA", launcher)
         self.assertIn("--onefile", workflow)
         self.assertIn("Kolibri-GRN-471-demo.exe", workflow)

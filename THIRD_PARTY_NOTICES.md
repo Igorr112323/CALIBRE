@@ -24,7 +24,7 @@
 | Capacitor Core, Android, CLI, Filesystem | Упаковка HTML-интерфейса в Android APK и нативные плагины | MIT |
 | @capacitor-community/sqlite 8.1.1 | SQLite в Android APK | MIT |
 | @capacitor/network 8.0.1 | Событие восстановления сети в Android | MIT |
-| Vite 8.3.5 | Локальная сборка интерфейса и loopback-предпросмотр | MIT |
+| Vite 8.3.5 | Локальная сборка мобильного APK | MIT |
 | PyInstaller 6.22.3 | Упаковка автономного Windows EXE | GPLv2-or-later с исключением для bootloader; текст COPYING включается в EXE вместе с этими notices |
 | Ollama (планируется) | Локальный запуск модели | MIT; **лицензия самих весов модели проверяется отдельно после выбора конкретной модели** |
 

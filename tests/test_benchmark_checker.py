@@ -24,6 +24,8 @@ class BenchmarkCheckerTests(unittest.TestCase):
     def test_spelled_number_is_recognized_in_verbatim_quote(self):
         self.assertTrue(checker.numeric_evidence_check("2", "в течение двух рабочих смен")[0])
 
+    @unittest.skipUnless((ROOT / "tests/test_documents/GRN-471-Kolibri-v4-gold.json").is_file(),
+                         "Локальный gold-файл не включается в Git")
     def test_known_image_only_value_is_separated_from_hallucination(self):
         gold = json.loads((ROOT / "tests/test_documents/GRN-471-Kolibri-v4-gold.json").read_text(encoding="utf-8"))
         pages = [""] * 56
@@ -36,6 +38,8 @@ class BenchmarkCheckerTests(unittest.TestCase):
         self.assertFalse(checked_bad["valid"])
         self.assertFalse(checked_bad["manual_visual_only"])
 
+    @unittest.skipUnless((ROOT / "tests/test_documents/GRN-471-Kolibri-v4-gold.json").is_file(),
+                         "Локальный gold-файл не включается в Git")
     def test_visual_only_claim_stays_manual_after_a_machine_verified_claim(self):
         full_gold = json.loads((ROOT / "tests/test_documents/GRN-471-Kolibri-v4-gold.json").read_text(encoding="utf-8"))
         selected = [next(n for n in full_gold["norms"] if n["id"] == norm_id) for norm_id in ("N010", "N035")]

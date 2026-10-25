@@ -239,9 +239,6 @@ function mergeSavedState(saved) {
   appState.feedbackQueue = asArray(saved.feedbackQueue);
   appState.questionQueue = asArray(saved.questionQueue);
   appState.mediaCache = saved.mediaCache && typeof saved.mediaCache === 'object' ? saved.mediaCache : {};
-  if (!isNative && window.location.pathname.startsWith('/preview')) {
-    appState.serverUrl = window.location.origin;
-  }
 }
 
 async function persist() {

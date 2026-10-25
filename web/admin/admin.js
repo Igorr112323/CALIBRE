@@ -56,32 +56,34 @@
     return code;
   }
   function renderMachinePicker() {
-    const wrap = $('#machine-picker-wrap');
     const select = $('#machine-select');
-    wrap.hidden = !state.machines.length;
+    const label = $('#machine-select-label');
+    const hasMachines = state.machines.length > 0;
+    select.hidden = !hasMachines;
+    label.hidden = !hasMachines;
     select.innerHTML = state.machines.map((machine) => `<option value="${machine.id}">${escapeHtml(machine.manufacturer)} ${escapeHtml(machine.model)}</option>`).join('');
     if (state.machineId) select.value = String(state.machineId);
   }
   function render() {
     const machine = selectedMachine();
     const hasMachine = Boolean(machine);
-    $('#wizard-panel').hidden = hasMachine && !state.newFlow;
-    $('#machine-panel').hidden = !hasMachine;
-    $('#content-panel').hidden = !hasMachine;
+    $('#machine-create-panel').hidden = !state.newFlow;
+    $('#wizard-panel').hidden = hasMachine || state.newFlow;
+    $('#machine-panel').hidden = !hasMachine || state.newFlow;
+    $('#content-panel').hidden = !hasMachine || state.newFlow;
+    $('#analysis-panel').hidden = !hasMachine || state.newFlow || !state.analysisRun;
     $('#page-heading').textContent = state.newFlow ? 'Добавим новую технику' : (hasMachine ? `${machine.manufacturer} ${machine.model}` : 'Соберём базу Kolibri вместе');
+    modelField.parentElement.hidden = hasMachine || state.newFlow;
+    modelField.required = !hasMachine && !state.newFlow;
     if (hasMachine) {
       $('#machine-panel [name="manufacturer"]').value = machine.manufacturer || 'Kolibri';
       $('#machine-panel [name="model"]').value = machine.model || '';
       $('#machine-panel [name="machine_type"]').value = machine.machine_type || '';
       $('#machine-panel [name="description"]').value = machine.description || '';
-      modelField.parentElement.hidden = !state.newFlow;
-      modelField.required = state.newFlow;
       $('#manual-state').textContent = state.documents.length ? `${state.documents.length} PDF обработано` : 'Добавьте руководство';
       $('#manual-state').classList.toggle('ready', state.documents.length > 0);
       setStep(state.documents.length ? 3 : 2);
     } else {
-      modelField.parentElement.hidden = false;
-      modelField.required = true;
       setStep(1);
     }
     renderMachinePicker();
@@ -316,17 +318,61 @@
     $('#manual-file-name').textContent = fileInput.files[0]?.name || 'Выберите руководство';
   });
   $('#new-machine').addEventListener('click', () => {
-    state.machineId = null; state.newFlow = true;
-    setupForm.reset(); modelField.value = 'ГРН-471';
-    $('#manual-file-name').textContent = 'Выберите руководство';
-    setStatus('#setup-status', '');
+    state.returnMachineId = state.machineId;
+    state.machineId = null;
+    state.newFlow = true;
+    $('#machine-create-form').reset();
+    $('#machine-create-form [name="manufacturer"]').value = 'Kolibri';
+    $('#machine-create-form [name="machine_type"]').value = 'Сельскохозяйственная техника';
+    setStatus('#machine-create-status', '');
     render(); window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+  $('#cancel-machine-create').addEventListener('click', async () => {
+    state.newFlow = false;
+    state.machineId = state.returnMachineId || null;
+    state.returnMachineId = null;
+    if (state.machineId) await loadMachineData();
+    else render();
+  });
+  $('#machine-create-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = Object.fromEntries(new FormData(form).entries());
+    const button = form.querySelector('button[type="submit"]');
+    setBusy(button, true, 'Создаю…');
+    try {
+      const machine = await request('/api/admin/machines', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...data, code: machineCode(data.model) }),
+      });
+      state.newFlow = false;
+      state.returnMachineId = null;
+      await loadMachines(machine.id);
+      setStatus('#card-status', `Машина создана. Теперь можно добавить руководство, узлы и фотографии.`, 'good');
+    } catch (error) { setStatus('#machine-create-status', error.message, 'bad'); }
+    finally { setBusy(button, false); }
   });
   $('#machine-select').addEventListener('change', async (event) => {
     state.machineId = Number(event.target.value) || null; state.newFlow = false;
     try { await loadMachineData(); } catch (error) { setStatus('#setup-status', error.message, 'bad'); }
   });
 
+  async function uploadManual(file, machineId, title, statusSelector, form, button) {
+    const body = new FormData();
+    body.append('machine_id', machineId);
+    body.append('title', title || file.name.replace(/\.pdf$/i, ''));
+    body.append('file', file);
+    const result = await request('/api/admin/documents', { method: 'POST', body });
+    setStatus(statusSelector, `PDF сохранён локально (${result.page_count} стр.). Разбор поставлен в очередь; прогресс сохраняется на ПК и продолжится после перезапуска.`, 'good');
+    form.reset();
+    if (statusSelector === '#setup-status') $('#manual-file-name').textContent = 'Выберите руководство';
+    await loadMachines(machineId);
+    if (result.analysis_run_id) {
+      state.analysisRun = await request(`/api/admin/analysis/${result.analysis_run_id}`);
+      renderAnalysis();
+      document.querySelector('#analysis-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
   setupForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const button = $('#process-pdf');
@@ -336,33 +382,37 @@
     setBusy(button, true, 'Обрабатываю PDF…');
     setStatus('#setup-status', 'Сохраняю файл, извлекаю текст и строю локальный индекс. Не закрывайте это окно.', '');
     try {
-      if (!state.machineId) {
+      let machineId = state.machineId;
+      if (!machineId) {
         const model = modelField.value.trim();
         const machine = await request('/api/admin/machines', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code: machineCode(model), manufacturer: 'Kolibri', model, machine_type: 'Сельскохозяйственная техника', description: '' })
         });
-        state.machines.push(machine); state.machineId = machine.id; state.newFlow = false;
-        await loadMachineData();
+        machineId = machine.id;
       }
-      const body = new FormData();
-      body.append('machine_id', state.machineId);
-      body.append('title', file.name.replace(/\.pdf$/i, ''));
-      body.append('file', file);
-      const result = await request('/api/admin/documents', { method: 'POST', body });
-      setStatus('#setup-status', `PDF сохранён локально (${result.page_count} стр.). Разбор поставлен в очередь; прогресс сохраняется на ПК и продолжится после перезапуска.`, 'good');
-      setupForm.reset(); $('#manual-file-name').textContent = 'Выберите руководство';
-      await loadMachines(state.machineId);
-      if (result.analysis_run_id) {
-        state.analysisRun = await request(`/api/admin/analysis/${result.analysis_run_id}`);
-        renderAnalysis();
-        document.querySelector('#analysis-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-      state.newFlow = false; render();
+      state.newFlow = false;
+      state.machineId = machineId;
+      await uploadManual(file, machineId, '', '#setup-status', setupForm, button);
     } catch (error) {
       setStatus('#setup-status', error.message, 'bad');
       if (state.machineId) { try { await loadMachineData(); } catch (_) { /* leave original error */ } }
     } finally { setBusy(button, false); }
+  });
+  $('#manual-upload-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!state.machineId) return setStatus('#manual-upload-status', 'Сначала выберите или создайте машину.', 'bad');
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const file = data.get('file');
+    if (!(file instanceof File) || !file.size) return setStatus('#manual-upload-status', 'Выберите PDF.', 'bad');
+    if (!file.name.toLowerCase().endsWith('.pdf')) return setStatus('#manual-upload-status', 'Можно загрузить только PDF.', 'bad');
+    const button = form.querySelector('button[type="submit"]');
+    setBusy(button, true, 'Обрабатываю…');
+    try {
+      await uploadManual(file, state.machineId, data.get('title').toString().trim(), '#manual-upload-status', form, button);
+    } catch (error) { setStatus('#manual-upload-status', error.message, 'bad'); }
+    finally { setBusy(button, false); }
   });
 
   $('#card-form').addEventListener('submit', async (event) => {
