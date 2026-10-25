@@ -94,12 +94,12 @@ def main() -> None:
     root.resizable(False, False)
     root.configure(bg="#eef2ef")
 
-    state: dict[str, object] = {"servers": [], "threads": [], "error": None, "ready": False, "page_url": "", "phone_url": ""}
+    state: dict[str, object] = {"servers": [], "threads": [], "error": None, "ready": False, "page_url": "", "admin_url": "", "phone_url": ""}
     tk.Label(root, text="Kolibri", font=("Segoe UI", 17, "bold"), fg="white", bg="#2e7d32", pady=11).pack(fill="x")
     status = tk.Label(root, text="Готовим страницу и локальную базу…", font=("Segoe UI", 11), bg="#eef2ef", fg="#1b1f1d", wraplength=440)
     status.pack(pady=(13, 5))
 
-    tk.Label(root, text="Страница на этом компьютере", font=("Segoe UI", 9, "bold"), fg="#5f6b64", bg="#eef2ef").pack()
+    tk.Label(root, text="Админ-панель Kolibri на этом компьютере", font=("Segoe UI", 9, "bold"), fg="#5f6b64", bg="#eef2ef").pack()
     page_address = tk.StringVar(value="Запуск…")
     tk.Label(root, textvariable=page_address, font=("Segoe UI", 10, "underline"), fg="#2e7d32", bg="#eef2ef").pack(pady=(1, 6))
 
@@ -114,7 +114,7 @@ def main() -> None:
     buttons.pack(pady=2)
 
     def open_page() -> None:
-        url = str(state.get("page_url") or "")
+        url = str(state.get("admin_url") or "")
         if url:
             webbrowser.open(url, new=2, autoraise=True)
 
@@ -125,7 +125,7 @@ def main() -> None:
             root.clipboard_append(value)
             status.configure(text="Адрес телефона скопирован.", fg="#2e7d32")
 
-    open_button = tk.Button(buttons, text="Открыть страницу", command=open_page, state="disabled", width=17, bg="#2e7d32", fg="white", relief="flat", padx=5, pady=5)
+    open_button = tk.Button(buttons, text="Открыть админку", command=open_page, state="disabled", width=17, bg="#2e7d32", fg="white", relief="flat", padx=5, pady=5)
     open_button.pack(side="left", padx=4)
     copy_button = tk.Button(buttons, text="Копировать адрес телефона", command=copy_phone_address, state="disabled", width=24, padx=5, pady=5)
     copy_button.pack(side="left", padx=4)
@@ -180,6 +180,7 @@ def main() -> None:
             state["servers"] = servers
             state["threads"] = threads
             state["page_url"] = f"http://127.0.0.1:{local_port}/preview/"
+            state["admin_url"] = f"http://127.0.0.1:{local_port}/admin"
             ip_address = server_module.local_lan_ip()
             state["phone_url"] = f"http://{ip_address}:{phone_port}"
             for thread in threads:
@@ -199,7 +200,7 @@ def main() -> None:
 
     def poll_startup() -> None:
         if state.get("ready"):
-            page_address.set(str(state["page_url"]))
+            page_address.set(str(state["admin_url"]))
             phone_address.set(str(state["phone_url"]))
             open_button.configure(state="normal")
             if "НЕ НАЙДЕН" not in str(state["phone_url"]):
@@ -208,9 +209,9 @@ def main() -> None:
             try:
                 opened = webbrowser.open(str(state["page_url"]), new=2, autoraise=True)
                 if not opened:
-                    status.configure(text="Страница готова. Нажмите «Открыть страницу».", fg="#765500")
+                    status.configure(text="Предпросмотр открыт. Нажмите «Открыть админку».", fg="#765500")
             except Exception:
-                status.configure(text="Страница готова. Нажмите «Открыть страницу».", fg="#765500")
+                status.configure(text="Предпросмотр открыт. Нажмите «Открыть админку».", fg="#765500")
             return
         if state.get("error"):
             status.configure(text="Не удалось запустить Kolibri.", fg="#a22121")
