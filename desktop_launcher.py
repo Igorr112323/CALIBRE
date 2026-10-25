@@ -60,8 +60,12 @@ def run_self_test() -> None:
             if response.status != 200 or "Kolibri — панель знаний" not in admin_html:
                 raise RuntimeError("Windows EXE self-test: админ-панель Kolibri не открылась")
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/admin/static/admin/admin.js", timeout=10) as response:
-            if response.status != 200 or "assistant/answer" not in response.read().decode("utf-8"):
-                raise RuntimeError("Windows EXE self-test: ресурсы панели документов не загрузились")
+            admin_js = response.read().decode("utf-8")
+            if response.status != 200 or "/api/admin/nodes" not in admin_js or "/api/admin/media" not in admin_js:
+                raise RuntimeError("Windows EXE self-test: ресурсы упрощённой панели техники не загрузились")
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/admin/static/admin/kolibri-mark.png", timeout=10) as response:
+            if response.status != 200 or not response.headers.get("Content-Type", "").startswith("image/png"):
+                raise RuntimeError("Windows EXE self-test: логотип Kolibri не загрузился")
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/admin/assistant/status", timeout=10) as response:
             ai_status = json.loads(response.read())
             if ai_status.get("reason") != "not_configured":
