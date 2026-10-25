@@ -51,6 +51,12 @@ class LocalKnowledgeAdminTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_manual_is_stored_indexed_scoped_and_not_exposed_to_phone(self):
         machine_id = await self.create_machine()
+        before_upload = await self.client.post("/api/admin/assistant/answer", json={
+            "machine_id": machine_id, "question": "Почему граблины задевают поверхность почвы?"
+        })
+        self.assertEqual(before_upload.status_code, 200, before_upload.text)
+        self.assertEqual(before_upload.json()["status"], "diagnostic_manual_missing")
+
         uploaded = await self.upload_manual(machine_id)
         self.assertEqual(uploaded.status_code, 201, uploaded.text)
         document = uploaded.json()
@@ -58,6 +64,39 @@ class LocalKnowledgeAdminTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(document["scope"], {"guide_start_page": 4, "guide_end_page": 33,
                                               "catalog_start_page": 34, "catalog_end_page": 56})
         self.assertGreater(document["pages_with_text"], 30)
+
+        diagnosis = await self.client.post("/api/admin/assistant/answer", json={
+            "machine_id": machine_id, "question": "Почему граблины задевают поверхность почвы?"
+        })
+        self.assertEqual(diagnosis.status_code, 200, diagnosis.text)
+        diagnosis_payload = diagnosis.json()
+        self.assertEqual(diagnosis_payload["status"], "manual_diagnosis")
+        self.assertFalse(diagnosis_payload["model_used"])
+        self.assertIn("Малое расстояние между торцами граблин", diagnosis_payload["answer"])
+        self.assertEqual({item["page"] for item in diagnosis_payload["citations"]}, {10, 13, 23, 30})
+        self.assertTrue(all(item["viewer_url"].endswith(f"#page={item['page']}")
+                            for item in diagnosis_payload["citations"]))
+
+        for question in (
+            "При работе большие потери сена и слишком широкий валок",
+            "В транспортном положении грабли развёрнуты относительно оси трактора",
+            "Течёт смазка из редуктора",
+            "Возник резкий металлический стук",
+            "Чрезмерный нагрев редуктора",
+        ):
+            matched = await self.client.post("/api/admin/assistant/answer", json={
+                "machine_id": machine_id, "question": question
+            })
+            self.assertEqual(matched.status_code, 200, matched.text)
+            self.assertEqual(matched.json()["status"], "manual_diagnosis", question)
+            self.assertTrue(any(item["page"] == 30 for item in matched.json()["citations"]), question)
+
+        unknown_diagnosis = await self.client.post("/api/admin/assistant/answer", json={
+            "machine_id": machine_id, "question": "Почему сломался подшипник?"
+        })
+        self.assertEqual(unknown_diagnosis.status_code, 200, unknown_diagnosis.text)
+        self.assertEqual(unknown_diagnosis.json()["status"], "diagnostic_no_match")
+        self.assertIsNone(unknown_diagnosis.json()["diagnosis"])
 
         listing = (await self.client.get("/api/admin/documents", params={"machine_id": machine_id})).json()
         self.assertEqual(len(listing), 1)

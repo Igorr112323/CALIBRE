@@ -5,6 +5,7 @@ import hashlib
 import ipaddress
 import json
 import os
+import re
 import socket
 import uuid
 from pathlib import Path
@@ -22,6 +23,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from calibre.assistant import generate_grounded_answer, model_status
+from calibre.diagnostics import (diagnostic_answer, exact_manual_for_machine,
+                                 is_diagnostic_question, match_manual_diagnosis)
 from calibre.catalog import mobile_catalog
 from calibre.database import DATA_ROOT, initialize_database, make_engine
 from calibre.knowledge import is_parts_query, search_pages, search_part_graph, validate_document_scope
@@ -576,6 +579,38 @@ def create_app(database_url: str | None = None, include_demo: bool = True, enabl
             machine = session.get(Machine, body.machine_id)
             if machine is None or machine.is_demo or machine.status == "archived":
                 raise HTTPException(status_code=404, detail="Рабочая техника не найдена")
+            if is_diagnostic_question(body.question):
+                manuals = session.scalars(select(SourceDocument).where(
+                    SourceDocument.machine_id == body.machine_id
+                ).order_by(SourceDocument.uploaded_at.desc())).all()
+                manual = next((candidate for candidate in manuals if exact_manual_for_machine(candidate)), None)
+                if manual is None:
+                    return {"status": "diagnostic_manual_missing",
+                            "answer": "Для диагностики по таблице неисправностей нужен точный PDF руководства Kolibri ГРН-471 v4. Загрузите его в локальную базу этой машины. Другие документы не будут подменены этим источником.",
+                            "citations": [], "model_used": False}
+                case = match_manual_diagnosis(body.question)
+                page_numbers = ({30, 13, *(item["page"] for item in case.get("manual_sources", []))}
+                                if case is not None else {30})
+                source_pages = {page.page_number: page for page in session.scalars(select(DocumentPage).where(
+                    DocumentPage.source_document_id == manual.id,
+                    DocumentPage.page_number.in_(page_numbers),
+                )).all()}
+                result = diagnostic_answer(case, question=body.question.strip(), document_id=manual.id,
+                                           document_title=manual.title, filename=manual.original_filename)
+                # Verify every displayed quotation against the local extracted PDF page.
+                verified_citations = []
+                for citation in result["citations"]:
+                    page = source_pages.get(citation["page"])
+                    source_text = re.sub(r"\s+", "", page.extracted_text or "").casefold() if page else ""
+                    cited_text = re.sub(r"\s+", "", citation["quote"]).casefold()
+                    if not source_text or cited_text not in source_text:
+                        return {"status": "diagnostic_source_check_failed",
+                                "answer": "Не удалось сверить текст диагностики с нужной страницей PDF. Причина не сформирована; проверьте распознавание страницы вручную.",
+                                "citations": [], "model_used": False}
+                    citation["viewer_url"] = f"/api/admin/documents/{manual.id}/file#page={citation['page']}"
+                    verified_citations.append(citation)
+                result["citations"] = verified_citations
+                return result
             hits = search_pages(session, body.question, machine_id=body.machine_id, limit=6)
             if is_parts_query(body.question):
                 part_hits = search_part_graph(session, body.question, machine_id=body.machine_id, limit=2)

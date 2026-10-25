@@ -220,6 +220,32 @@
     } catch (error) { setStatus('#photo-status', error.message, 'bad'); }
     finally { setBusy(button, false); }
   });
+  $('#diagnostic-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const question = new FormData(form).get('question').toString().trim();
+    const button = form.querySelector('button[type="submit"]');
+    const resultBox = $('#diagnostic-result');
+    resultBox.hidden = false;
+    resultBox.className = 'diagnostic-result';
+    resultBox.textContent = 'Сверяю проявление с таблицей неисправностей и страницами руководства…';
+    setBusy(button, true, 'Проверяю…');
+    try {
+      const result = await request('/api/admin/assistant/answer', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ machine_id: state.machineId, question })
+      });
+      const answerHtml = escapeHtml(result.answer || 'Ответ не сформирован.').replace(/\n/g, '<br>');
+      const citationHtml = (result.citations || []).map((citation) =>
+        `<a href="${escapeHtml(citation.viewer_url || '#')}" target="_blank" rel="noopener">PDF, стр. ${Number(citation.page)}</a>`
+      ).join(' · ');
+      resultBox.className = `diagnostic-result${result.status === 'manual_diagnosis' ? '' : ' bad'}`;
+      resultBox.innerHTML = `${answerHtml}${citationHtml ? `<br><br><strong>Проверить источник:</strong> ${citationHtml}` : ''}`;
+    } catch (error) {
+      resultBox.className = 'diagnostic-result bad';
+      resultBox.textContent = error.message;
+    } finally { setBusy(button, false); }
+  });
 
   loadMachines().catch((error) => {
     $('#wizard-panel').innerHTML = `<div class="error-box">Не удалось загрузить Kolibri: ${escapeHtml(error.message)}. Убедитесь, что локальный сервер запущен.</div>`;

@@ -59,6 +59,15 @@
 
     <section class="panel content-panel" id="content-panel" hidden>
       <div class="panel-heading"><span class="step-number">3</span><div><p class="eyebrow">ДОПОЛНЯЕМ КАРТОЧКУ</p><h2>Фото и обычные узлы</h2></div></div>
+      <details class="diagnostic-panel" id="diagnostic-panel">
+        <summary>Проверить неисправность по руководству</summary>
+        <p>Опишите проявление. Ответ появится только при совпадении с неисправностью в загруженном руководстве; неизвестную причину Kolibri не будет придумывать.</p>
+        <form id="diagnostic-form" class="diagnostic-form">
+          <label class="field"><span>Что происходит с машиной?</span><input name="question" maxlength="600" required placeholder="Например: граблины задевают почву"></label>
+          <button class="button button-primary" type="submit">Найти в руководстве</button>
+        </form>
+        <div id="diagnostic-result" class="diagnostic-result" role="status" aria-live="polite" hidden></div>
+      </details>
       <div class="add-grid">
         <form id="photo-form" class="add-card">
           <h3>Добавить фото</h3><p>Снимок машины или отдельного узла.</p>
