@@ -69,6 +69,7 @@ class ServerStageTwoTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('id="homeSearch"', response.text)
         self.assertIn('id="card-form"', response.text)
         self.assertIn('id="manual-upload-form"', response.text)
+        self.assertIn('id="problem-form"', response.text)
         self.assertEqual((await self.client.get("/admin/static/admin/admin.css")).status_code, 200)
         admin_js = await self.client.get("/admin/static/admin/admin.js")
         self.assertEqual(admin_js.status_code, 200)

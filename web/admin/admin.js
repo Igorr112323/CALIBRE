@@ -1,6 +1,6 @@
 (() => {
   const $ = (selector) => document.querySelector(selector);
-  const state = { screen: 'home', returnScreen: null, returnMachineId: null, machines: [], machineId: null, newFlow: false, newMachinePhotos: [], nodes: [], documents: [], photos: [], machineTab: 'scheme', movingNodeId: null };
+  const state = { screen: 'home', returnScreen: null, returnMachineId: null, machines: [], machineId: null, newFlow: false, newMachinePhotos: [], nodes: [], documents: [], photos: [], problems: [], machineTab: 'scheme', movingNodeId: null };
   const setupForm = $('#setup-form');
   const modelField = setupForm.elements.model;
   const fileInput = $('#manual-file');
@@ -134,18 +134,20 @@
     renderNodes();
     renderPhotos();
     renderDocuments();
+    renderProblems();
   }
   async function loadMachineData() {
     if (!state.machineId) {
-      state.nodes = []; state.documents = []; state.photos = []; render(); return;
+      state.nodes = []; state.documents = []; state.photos = []; state.problems = []; render(); return;
     }
     const id = encodeURIComponent(state.machineId);
     const results = await Promise.all([
       request(`/api/admin/nodes?machine_id=${id}`),
       request(`/api/admin/documents?machine_id=${id}`),
-      request(`/api/admin/media?machine_id=${id}`)
+      request(`/api/admin/media?machine_id=${id}`),
+      request(`/api/admin/problems?machine_id=${id}`)
     ]);
-    [state.nodes, state.documents, state.photos] = results;
+    [state.nodes, state.documents, state.photos, state.problems] = results;
     render();
   }
   async function loadMachines(preferredId = null) {
@@ -195,6 +197,24 @@
       $('#document-summary').hidden = false;
       $('#document-summary').textContent = `Руководство загружено. В нём ${latest.page_count} страниц.`;
     } else $('#document-summary').hidden = true;
+  }
+  function renderProblems() {
+    const list = $('#problem-list');
+    if (!list) return;
+    list.innerHTML = state.problems.length ? state.problems.map((problem) => `
+      <article class="problem-editor-card">
+        <div class="problem-editor-heading"><strong>${escapeHtml(problem.title)}</strong><span>${problem.status === 'published' ? 'Опубликовано' : 'Черновик'}</span></div>
+        <p>${escapeHtml(problem.symptom)}</p>
+        ${problem.steps.length ? `<ol>${problem.steps.map((step) => `<li>${escapeHtml(step)}</li>`).join('')}</ol>` : ''}
+        <details class="node-edit-details"><summary>Изменить</summary>
+          <form class="problem-edit-form" data-problem-id="${problem.id}">
+            <label class="field"><span>Название</span><input name="title" required maxlength="320" value="${escapeHtml(problem.title)}"></label>
+            <label class="field"><span>Что происходит?</span><textarea name="symptom" rows="2" required maxlength="4000">${escapeHtml(problem.symptom)}</textarea></label>
+            <label class="field"><span>Шаги проверки <small>каждый с новой строки</small></span><textarea name="steps" rows="4" maxlength="12000">${escapeHtml(problem.steps.join('\n'))}</textarea></label>
+            <button class="button button-secondary" type="submit">Сохранить</button>
+          </form>
+        </details>
+      </article>`).join('') : '<p class="empty">Пока карточек неисправностей нет.</p>';
   }
 
 
@@ -297,14 +317,18 @@
     const pdfFile = $('#new-machine-pdf').files[0] || null;
     const photos = state.newMachinePhotos.slice();
     const missingLabel = photos.some((photo) => photo.markers.some((marker) => !marker.title.trim()));
-    if (missingLabel) {
-      setStatus('#machine-create-status', 'Подпишите каждый пронумерованный узел или удалите ненужную отметку.', 'bad');
-      form.querySelector('[data-marker-title]:invalid')?.focus();
-      return;
-    }
     if (!photos.length) {
       setStatus('#machine-create-status', 'Добавьте хотя бы одно фото техники.', 'bad');
       $('#new-machine-photos').focus();
+      return;
+    }
+    if (!photos.some((photo) => photo.markers.length)) {
+      setStatus('#machine-create-status', 'Поставьте хотя бы одну отметку на фото и назовите узел.', 'bad');
+      return;
+    }
+    if (missingLabel) {
+      setStatus('#machine-create-status', 'Подпишите каждый пронумерованный узел или удалите ненужную отметку.', 'bad');
+      form.querySelector('[data-marker-title]:invalid')?.focus();
       return;
     }
     if (pdfFile && !pdfFile.name.toLowerCase().endsWith('.pdf')) {
@@ -581,6 +605,45 @@
       resultBox.textContent = error.message;
     } finally { setBusy(button, false); }
   }
+  function problemPayload(form) {
+    const data = Object.fromEntries(new FormData(form).entries());
+    return { title: data.title.toString().trim(), symptom: data.symptom.toString().trim(),
+      steps: data.steps.toString().split(/\r?\n/).map((step) => step.trim()).filter(Boolean) };
+  }
+  $('#problem-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
+    setBusy(button, true, 'Добавляю…');
+    try {
+      const result = await request('/api/admin/problems', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ machine_id: state.machineId, ...problemPayload(form) }) });
+      form.reset();
+      await loadMachines(state.machineId);
+      setStatus('#problem-status', result.machine_status === 'draft'
+        ? 'Карточка добавлена. Проверьте её и опубликуйте технику заново.'
+        : 'Карточка добавлена. Проверьте и опубликуйте её вместе с техникой.', 'good');
+    } catch (error) { setStatus('#problem-status', error.message, 'bad'); }
+    finally { setBusy(button, false); }
+  });
+  $('#problem-list').addEventListener('submit', async (event) => {
+    const form = event.target.closest('.problem-edit-form');
+    if (!form) return;
+    event.preventDefault();
+    const button = form.querySelector('button[type="submit"]');
+    setBusy(button, true, 'Сохраняю…');
+    try {
+      const result = await request(`/api/admin/problems/${form.dataset.problemId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(problemPayload(form)),
+      });
+      await loadMachines(state.machineId);
+      setStatus('#problem-status', result.machine_status === 'draft'
+        ? 'Изменение сохранено. Проверьте карточку и опубликуйте её заново.'
+        : 'Изменение сохранено.', 'good');
+    } catch (error) { setStatus('#problem-status', error.message, 'bad'); }
+    finally { setBusy(button, false); }
+  });
+
   $('#manual-question-form').addEventListener('submit', (event) => {
     event.preventDefault();
     void askAdminAssistant(event.currentTarget, $('#manual-question-result'));

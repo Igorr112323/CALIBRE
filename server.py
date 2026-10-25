@@ -97,6 +97,19 @@ class NodeUpdate(BaseModel):
     marker_photo_id: int | None = Field(default=None, gt=0)
 
 
+class ProblemCreate(BaseModel):
+    machine_id: int = Field(gt=0)
+    title: str = Field(min_length=1, max_length=320)
+    symptom: str = Field(min_length=1, max_length=4000)
+    steps: list[str] = Field(default_factory=list, max_length=30)
+
+
+class ProblemUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=320)
+    symptom: str = Field(min_length=1, max_length=4000)
+    steps: list[str] = Field(default_factory=list, max_length=30)
+
+
 class AssistantRequest(BaseModel):
     machine_id: int = Field(gt=0)
     question: str = Field(min_length=1, max_length=2000)
@@ -411,6 +424,12 @@ def create_app(database_url: str | None = None, include_demo: bool = True,
                 )).all()
                 for node in marker_nodes:
                     node.status = "published"
+                problems = session.scalars(select(Problem).where(
+                    Problem.machine_id == machine_id,
+                    Problem.status.in_(("review", "verified")),
+                )).all()
+                for problem in problems:
+                    problem.status = "published"
             session.commit()
             return {"id": machine.id, "status": machine.status,
                     "published": machine.status == "published"}
@@ -489,6 +508,80 @@ def create_app(database_url: str | None = None, include_demo: bool = True,
                     "map_x": float(node.map_x) if node.map_x is not None else None,
                     "map_y": float(node.map_y) if node.map_y is not None else None,
                     "marker_photo_id": node.marker_photo_id, "machine_status": machine.status}
+
+    @app.get("/api/admin/problems")
+    async def admin_problems(machine_id: int = Query(gt=0)):
+        with Session(app.state.engine) as session:
+            machine = session.get(Machine, machine_id)
+            if machine is None or machine.is_demo:
+                raise HTTPException(status_code=404, detail="Рабочая техника не найдена")
+            problems = session.scalars(select(Problem).where(Problem.machine_id == machine_id).order_by(Problem.id)).all()
+            return [{"id": problem.id, "title": problem.title, "symptom": problem.symptom,
+                     "status": problem.status,
+                     "steps": [step.instruction for step in sorted(problem.steps, key=lambda item: item.step_number)]}
+                    for problem in problems]
+
+    @app.post("/api/admin/problems", status_code=201)
+    async def admin_create_problem(body: ProblemCreate):
+        steps = [instruction.strip() for instruction in body.steps if instruction.strip()]
+        if any(len(instruction) > 2000 for instruction in steps):
+            raise HTTPException(status_code=422, detail="Слишком длинный шаг")
+        with Session(app.state.engine) as session:
+            machine = session.get(Machine, body.machine_id)
+            if machine is None or machine.is_demo or machine.status == "archived":
+                raise HTTPException(status_code=404, detail="Рабочая техника не найдена")
+            problem = Problem(machine_id=machine.id, title=body.title.strip(), symptom=body.symptom.strip(), status="review")
+            problem.steps = [ProblemStep(step_number=index, instruction=instruction)
+                             for index, instruction in enumerate(steps, 1)]
+            if machine.status == "published":
+                machine.status = "draft"
+            session.add(problem)
+            session.commit()
+            return {"id": problem.id, "title": problem.title, "symptom": problem.symptom,
+                    "status": problem.status, "machine_status": machine.status, "steps": steps}
+
+    @app.put("/api/admin/problems/{problem_id}")
+    async def admin_update_problem(problem_id: int, body: ProblemUpdate):
+        steps = [instruction.strip() for instruction in body.steps if instruction.strip()]
+        if any(len(instruction) > 2000 for instruction in steps):
+            raise HTTPException(status_code=422, detail="Слишком длинный шаг")
+        with Session(app.state.engine) as session:
+            problem = session.get(Problem, problem_id)
+            if problem is None:
+                raise HTTPException(status_code=404, detail="Карточка неисправности не найдена")
+            machine = session.get(Machine, problem.machine_id)
+            if machine is None or machine.is_demo or machine.status == "archived":
+                raise HTTPException(status_code=404, detail="Рабочая техника не найдена")
+            next_title = body.title.strip()
+            next_symptom = body.symptom.strip()
+            if (next_title, next_symptom) != (problem.title, problem.symptom):
+                problem.source_page = None
+                problem.source_quote = None
+            problem.title = next_title
+            problem.symptom = next_symptom
+            problem.status = "review"
+            existing_steps = sorted(problem.steps, key=lambda item: item.step_number)
+            updated_steps = []
+            for index, instruction in enumerate(steps, 1):
+                if index <= len(existing_steps):
+                    step = existing_steps[index - 1]
+                    if step.instruction != instruction:
+                        step.source_page = None
+                        step.source_quote = None
+                        step.linked_node_id = None
+                    step.instruction = instruction
+                    step.step_number = index
+                    updated_steps.append(step)
+                else:
+                    updated_steps.append(ProblemStep(step_number=index, instruction=instruction))
+            for removed_step in existing_steps[len(steps):]:
+                session.delete(removed_step)
+            problem.steps = updated_steps
+            if machine.status == "published":
+                machine.status = "draft"
+            session.commit()
+            return {"id": problem.id, "title": problem.title, "symptom": problem.symptom,
+                    "status": problem.status, "machine_status": machine.status, "steps": steps}
 
     @app.get("/api/admin/documents")
     async def admin_documents(machine_id: int | None = Query(default=None, gt=0)):

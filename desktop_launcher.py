@@ -70,6 +70,7 @@ def run_self_test() -> None:
                     or "manual-upload-form" not in admin_js
                     or "/api/admin/nodes" not in admin_js
                     or "/api/admin/media" not in admin_js
+                    or "/api/admin/problems" not in admin_js
                     or "/api/admin/assistant/answer" not in admin_js):
                 raise RuntimeError("Windows EXE self-test: карточки машин и материалы не загрузились")
         if "Добавить машину" not in admin_html:

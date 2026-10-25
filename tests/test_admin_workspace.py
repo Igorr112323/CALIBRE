@@ -96,6 +96,38 @@ class SimpleAdminWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(unpublished.json()["status"], "draft")
         self.assertEqual((await self.client.get("/api/mobile/catalog")).json()["real_machines"], [])
 
+    async def test_problem_cards_can_be_edited_and_require_republication(self):
+        created = await self.client.post("/api/admin/machines", json={
+            "code": "KOLIBRI-PROBLEMS", "manufacturer": "Kolibri", "model": "Проверочная машина",
+            "machine_type": "Сельхозтехника", "description": "",
+        })
+        machine_id = created.json()["id"]
+        problem = await self.client.post("/api/admin/problems", json={
+            "machine_id": machine_id,
+            "title": "Машина не включается",
+            "symptom": "Нет движения рабочих органов",
+            "steps": ["Проверьте подключение", "Осмотрите привод"],
+        })
+        self.assertEqual(problem.status_code, 201, problem.text)
+        listed = await self.client.get("/api/admin/problems", params={"machine_id": machine_id})
+        self.assertEqual(listed.json()[0]["steps"], ["Проверьте подключение", "Осмотрите привод"])
+        published = await self.client.put(f"/api/admin/machines/{machine_id}/publication", json={"published": True})
+        self.assertEqual(published.status_code, 200, published.text)
+        mobile = (await self.client.get("/api/mobile/catalog")).json()["real_machines"]
+        self.assertEqual(mobile[0]["problems"][0]["title"], "Машина не включается")
+        edited = await self.client.put(f"/api/admin/problems/{problem.json()['id']}", json={
+            "title": "Привод не вращается",
+            "symptom": "Рабочие органы остаются неподвижны",
+            "steps": ["Проверьте привод", "Проверьте соединение"],
+        })
+        self.assertEqual(edited.status_code, 200, edited.text)
+        self.assertEqual(edited.json()["machine_status"], "draft")
+        self.assertEqual((await self.client.get("/api/mobile/catalog")).json()["real_machines"], [])
+        republished = await self.client.put(f"/api/admin/machines/{machine_id}/publication", json={"published": True})
+        self.assertEqual(republished.status_code, 200, republished.text)
+        mobile = (await self.client.get("/api/mobile/catalog")).json()["real_machines"]
+        self.assertEqual(mobile[0]["problems"][0]["steps"][0]["instruction"], "Проверьте привод")
+
     async def test_machine_card_nodes_and_node_photo_flow(self):
         created = await self.client.post("/api/admin/machines", json={
             "code": "KOLIBRI-GRN-471", "manufacturer": "Kolibri", "model": "ГРН-471",

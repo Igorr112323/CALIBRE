@@ -123,7 +123,16 @@
       </section>
       <section class="machine-tab-panel" data-machine-tab-panel="problems" hidden>
         <div class="subheading"><h3>Неисправности</h3></div>
-        <div id="problem-list" class="item-list"><p class="empty">Пока здесь пусто. Добавьте руководство PDF, чтобы искать в нём ответы.</p></div>
+        <div id="problem-list" class="item-list"><p class="empty">Пока карточек неисправностей нет.</p></div>
+        <details class="editor-add-panel">
+          <summary>Добавить неисправность</summary>
+          <form id="problem-form" class="add-card problem-form">
+            <label class="field"><span>Название</span><input name="title" required maxlength="320" placeholder="Например: граблины не вращаются"></label>
+            <label class="field"><span>Что происходит?</span><textarea name="symptom" rows="2" required maxlength="4000"></textarea></label>
+            <label class="field"><span>Шаги проверки <small>каждый с новой строки</small></span><textarea name="steps" rows="4" maxlength="12000" placeholder="Проверьте соединение…"></textarea></label>
+            <button class="button button-secondary" type="submit">Добавить</button><p class="status" id="problem-status" role="status"></p>
+          </form>
+        </details>
         <details class="assistant-panel" id="assistant-panel">
           <summary>Спросить по руководству</summary>
           <p>Ответ будет опираться на загруженный документ. Если подтверждения нет, Kolibri сообщит об этом.</p>
