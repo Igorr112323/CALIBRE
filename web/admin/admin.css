@@ -15,3 +15,18 @@
 .guided-sync-toggle{display:flex;align-items:flex-start;gap:7px;margin:8px 1px 10px;color:#606a5e;font-size:10px;line-height:1.45;cursor:pointer}.guided-sync-toggle input{flex:none;margin:1px 0 0;accent-color:var(--green)}
 
 .assistant-panel{margin:18px 0 0 49px;padding:14px 15px;border:1px solid #dce7d7;border-radius:14px;background:#f7faf5}.assistant-panel summary{color:var(--green-dark);font-size:13px;font-weight:750;cursor:pointer}.assistant-panel>p{color:var(--muted);font-size:11px;line-height:1.5;margin:9px 0 13px}.assistant-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end}.assistant-form .field{margin:0}.assistant-result{white-space:pre-line;margin-top:13px;padding:13px 14px;border-radius:11px;background:white;border:1px solid var(--border);font-size:12px;line-height:1.65;color:var(--text)}.assistant-result a{color:var(--green);font-weight:700}.assistant-result blockquote{margin:6px 0 0;padding-left:11px;border-left:2px solid #d7e4d2;color:var(--muted)}.assistant-result[hidden]{display:none}@media(max-width:680px){.assistant-panel{margin-left:0}.assistant-form{grid-template-columns:1fr}.assistant-form .button{width:100%}}
+
+/* Desktop editor uses the same three-card navigation as the phone view. */
+.machine-tabs{display:flex;gap:4px;margin:12px 0 18px;padding:4px;border:1px solid var(--border);border-radius:12px;background:#fff}
+.machine-tabs button{flex:1;border:0;border-radius:9px;background:transparent;padding:10px 5px;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer}
+.machine-tabs button.active{background:var(--green);color:#fff}
+.machine-tab-panel[hidden]{display:none!important}
+.machine-tab-panel>.subheading{margin-bottom:9px}
+.editor-subsection{margin:17px 0 12px 49px}
+.editor-add-panel{margin:11px 0 0 49px;padding:11px 13px;border:1px solid var(--border);border-radius:12px;background:#fcfdfa}
+.editor-add-panel>summary{cursor:pointer;color:var(--green-dark);font-size:12px;font-weight:750}
+.editor-add-panel .add-card{margin:12px 0 0;padding:13px;border:0;border-radius:9px;background:#fff}
+.editor-add-panel .manual-upload-card{margin-left:0}
+@media(max-width:680px){.editor-subsection,.editor-add-panel{margin-left:0}.machine-tabs button{font-size:11px;padding:9px 3px}}
+.node-editor-content{min-width:0;flex:1}.node-edit-details{margin-top:7px}.node-edit-details summary{color:var(--green);font-size:10px;font-weight:750;cursor:pointer}.node-edit-form{margin:8px 0}.node-edit-form .field{margin-bottom:8px}.node-edit-form .button{width:auto}.node-edit-details>[data-move-node-id]{margin:0 0 5px}
+.card-edit-panel .card-form{margin-left:0}.card-edit-panel{margin-bottom:8px}

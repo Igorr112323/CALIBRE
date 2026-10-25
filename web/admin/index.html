@@ -38,12 +38,12 @@
 
     <section class="panel machine-create-panel" id="machine-create-panel" hidden>
       <div class="panel-heading"><span class="step-number">＋</span><div><p class="eyebrow">НОВАЯ ТЕХНИКА</p><h2>Создать карточку</h2></div></div>
-      <p class="explanation">Введите название, добавьте фото и при необходимости руководство. Нажмите на фото, чтобы поставить пронумерованные отметки, и подпишите каждый узел. Карточка останется черновиком до публикации.</p>
+      <p class="explanation">Введите название, добавьте фото и при необходимости руководство. Нажмите на фото, чтобы поставить пронумерованные отметки, и подпишите каждый узел. После создания карточка откроется в тех же трёх разделах, что и в приложении. Здесь её можно редактировать; публикация — отдельной галочкой.</p>
       <form id="machine-create-form" class="guided-create-form">
         <label class="field"><span>Название машины</span><input name="model" required maxlength="160" placeholder="Например, ГРН-471"></label>
         <div class="guided-photo-upload">
-          <label class="field"><span>Фотографии машины</span><input id="new-machine-photos" name="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label>
-          <small>JPG, PNG или WebP. Нажимайте на фото, чтобы расставить кружки; для каждой отметки можно указать название узла.</small>
+          <label class="field"><span>Фото техники <small>обязательно</small></span><input id="new-machine-photos" name="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple required></label>
+          <small>Нажмите на фото, чтобы поставить номер, и подпишите узел.</small>
           <div id="new-machine-photo-previews" class="guided-photo-previews"></div>
         </div>
         <label class="field guided-pdf-field"><span>Руководство PDF <small>необязательно</small></span><input id="new-machine-pdf" name="manual" type="file" accept="application/pdf,.pdf"><small>PDF останется на этом ПК. После сохранения карточки начнётся подготовка подсказок по руководству.</small></label>
@@ -64,59 +64,76 @@
     </section>
 
     <section class="panel machine-panel" id="machine-panel" hidden>
-      <div class="panel-heading"><span class="step-number">2</span><div><p class="eyebrow">ТЕХНИКА В БАЗЕ</p><h2>Карточка машины</h2></div><span class="saved-badge" id="manual-state">PDF не загружен</span></div>
+      <div class="panel-heading"><span class="step-number">K</span><div><p class="eyebrow">КАРТОЧКА ТЕХНИКИ</p><h2 id="machine-card-heading">Карточка машины</h2></div></div>
       <div class="publication-review" id="publication-review">
         <label><input id="machine-publish-toggle" type="checkbox"><span>Проверено — опубликовать карточку</span></label>
-        <p id="publication-state" role="status">Черновик: карточка видна в каталоге админки серой, но не передаётся в APK.</p>
+        <p id="publication-state" role="status">Черновик: виден в админке, но не передаётся в APK.</p>
       </div>
-      <form id="card-form" class="card-form">
-        <label class="field"><span>Марка</span><input name="manufacturer" value="Kolibri" required maxlength="160"></label>
-        <label class="field"><span>Модель</span><input name="model" required maxlength="160"></label>
-        <label class="field"><span>Тип техники</span><input name="machine_type" value="Сельскохозяйственная техника" required maxlength="160"></label>
-        <label class="field field-wide"><span>Описание <small>необязательно</small></span><textarea name="description" rows="2" maxlength="4000" placeholder="Краткое описание машины"></textarea></label>
-        <div class="form-actions"><span class="status" id="card-status" role="status"></span><button class="button button-primary" type="submit">Сохранить карточку</button></div>
-      </form>
-      <div class="document-summary" id="document-summary" hidden></div>
-    </section>
-
-    <section class="panel content-panel" id="content-panel" hidden>
-      <div class="panel-heading"><span class="step-number">3</span><div><p class="eyebrow">ДОПОЛНЯЕМ КАРТОЧКУ</p><h2>Фото и обычные узлы</h2></div></div>
-      <form id="manual-upload-form" class="add-card manual-upload-card">
-        <h3>Добавить руководство PDF</h3><p>PDF сохранится на ПК-сервере и будет привязан к выбранной машине.</p>
-        <label class="field"><span>Название руководства <small>необязательно</small></span><input name="title" maxlength="300" placeholder="Например: Руководство по эксплуатации"></label>
-        <label class="field"><span>Файл PDF до 100 МБ</span><input name="file" type="file" accept="application/pdf,.pdf" required></label>
-        <button class="button button-secondary" type="submit">Загрузить руководство</button><p class="status" id="manual-upload-status" role="status" aria-live="polite"></p>
-      </form>
-      <div class="add-grid">
-        <form id="photo-form" class="add-card">
-          <h3>Добавить фото</h3><p>Снимок машины или отдельного узла.</p>
-          <label class="field"><span>Подпись</span><input name="caption" maxlength="300" placeholder="Например: вид слева"></label>
-          <label class="field"><span>К какому узлу относится</span><select name="node_id" id="photo-node"><option value="">Фото всей машины / без узла</option></select></label>
-          <label class="field"><span>Файл JPG, PNG или WebP</span><input name="file" type="file" accept="image/jpeg,image/png,image/webp" required></label>
-          <label class="field"><span><input name="sync_to_phones" type="checkbox" value="true"> Разрешить передачу в приложение по локальной Wi‑Fi/LAN-сети</span><small>Фото останется внутренним и не будет опубликовано в интернете.</small></label>
-          <button class="button button-secondary" type="submit">Сохранить фото</button><p class="status" id="photo-status" role="status"></p>
-        </form>
-        <form id="node-form" class="add-card">
-          <h3>Добавить узел</h3><p>Создайте обычную карточку узла и при необходимости прикрепите к ней фото.</p>
-          <label class="field"><span>Название узла</span><input name="title" required maxlength="240" placeholder="Например: опорное колесо"></label>
-          <label class="field"><span>Назначение или заметка <small>необязательно</small></span><textarea name="purpose" rows="2" maxlength="4000" placeholder="Краткое описание"></textarea></label>
-          <button class="button button-secondary" type="submit">Добавить узел</button><p class="status" id="node-status" role="status"></p>
-        </form>
-      </div>
-      <div class="materials-grid">
-        <section class="subsection"><div class="subheading"><h3>Узлы этой машины</h3><span id="node-count">0</span></div><div id="node-list" class="item-list"><p class="empty">Добавьте первый узел — например, раму или колесо.</p></div></section>
-        <section class="subsection"><div class="subheading"><h3>Фотографии</h3><span id="photo-count">0</span></div><div id="photo-list" class="photo-list"><p class="empty">Загруженные фото появятся здесь.</p></div></section>
-      </div>
-      <section class="subsection docs-subsection"><div class="subheading"><h3>Руководства</h3><span id="document-count">0</span></div><div id="document-list" class="item-list"><p class="empty">Документы ещё не добавлены.</p></div></section>
-      <details class="assistant-panel" id="assistant-panel">
-        <summary>Задать вопрос по руководству</summary>
-        <p>Ответ будет опираться на загруженный документ. Если подтверждения в руководстве нет, Kolibri сообщит об этом.</p>
-        <form id="manual-question-form" class="assistant-form">
-          <label class="field"><span>Ваш вопрос</span><input name="question" maxlength="2000" required placeholder="Например: какие работы входят в ежедневное обслуживание?"></label>
-          <button class="button button-primary" type="submit">Найти ответ</button>
-        </form>
-        <div id="manual-question-result" class="assistant-result" role="status" aria-live="polite" hidden></div>
-      </details>
+      <nav class="machine-tabs" aria-label="Разделы карточки">
+        <button type="button" class="active" data-admin-tab="scheme">Схема</button>
+        <button type="button" data-admin-tab="nodes">Узлы</button>
+        <button type="button" data-admin-tab="problems">Неисправности</button>
+      </nav>
+      <section class="machine-tab-panel" data-machine-tab-panel="scheme">
+        <details class="editor-add-panel card-edit-panel">
+          <summary>Изменить название и сведения</summary>
+          <form id="card-form" class="card-form">
+            <label class="field"><span>Марка</span><input name="manufacturer" value="Kolibri" required maxlength="160"></label>
+            <label class="field"><span>Модель</span><input name="model" required maxlength="160"></label>
+            <label class="field"><span>Тип техники</span><input name="machine_type" value="Сельскохозяйственная техника" required maxlength="160"></label>
+            <label class="field field-wide"><span>Описание <small>необязательно</small></span><textarea name="description" rows="2" maxlength="4000" placeholder="Краткое описание машины"></textarea></label>
+            <div class="form-actions"><span class="status" id="card-status" role="status"></span><button class="button button-primary" type="submit">Сохранить</button></div>
+          </form>
+        </details>
+        <div class="document-summary" id="document-summary" hidden></div>
+        <section class="subsection editor-subsection"><div class="subheading"><h3>Фото и схема</h3><span id="photo-count">0</span></div><div id="photo-list" class="photo-list"><p class="empty">Загрузите фото техники и отметьте узлы.</p></div></section>
+        <details class="editor-add-panel">
+          <summary>Добавить фото</summary>
+          <form id="photo-form" class="add-card">
+            <p>Нажмите на фото при создании карточки, чтобы отметить узлы. Здесь можно добавить дополнительные снимки.</p>
+            <label class="field"><span>Подпись</span><input name="caption" maxlength="300" placeholder="Например: вид слева"></label>
+            <label class="field"><span>К какому узлу относится</span><select name="node_id" id="photo-node"><option value="">Фото всей машины / без узла</option></select></label>
+            <label class="field"><span>Файл JPG, PNG или WebP</span><input name="file" type="file" accept="image/jpeg,image/png,image/webp" required></label>
+            <label class="field"><span><input name="sync_to_phones" type="checkbox" value="true"> Передавать это внутреннее фото в приложение</span><small>Выключено по умолчанию; можно включить отдельно для каждого снимка.</small></label>
+            <button class="button button-secondary" type="submit">Сохранить фото</button><p class="status" id="photo-status" role="status"></p>
+          </form>
+        </details>
+        <section class="subsection docs-subsection"><div class="subheading"><h3>Руководства PDF</h3><span id="document-count">0</span></div><div id="document-list" class="item-list"><p class="empty">PDF ещё не добавлен.</p></div></section>
+        <details class="editor-add-panel">
+          <summary>Добавить руководство PDF</summary>
+          <form id="manual-upload-form" class="add-card manual-upload-card">
+            <p>Руководство хранится только на этом компьютере.</p>
+            <label class="field"><span>Название <small>необязательно</small></span><input name="title" maxlength="300" placeholder="Например: Руководство по эксплуатации"></label>
+            <label class="field"><span>Файл PDF</span><input name="file" type="file" accept="application/pdf,.pdf" required></label>
+            <button class="button button-secondary" type="submit">Загрузить PDF</button><p class="status" id="manual-upload-status" role="status" aria-live="polite"></p>
+          </form>
+        </details>
+      </section>
+      <section class="machine-tab-panel" data-machine-tab-panel="nodes" hidden>
+        <div class="subheading"><h3>Узлы карточки</h3><span id="node-count">0</span></div>
+        <div id="node-list" class="item-list"><p class="empty">Узлы появятся после отметки на фото.</p></div>
+        <details class="editor-add-panel">
+          <summary>Добавить узел</summary>
+          <form id="node-form" class="add-card">
+            <label class="field"><span>Название узла</span><input name="title" required maxlength="240" placeholder="Например: опорное колесо"></label>
+            <label class="field"><span>Назначение или заметка <small>необязательно</small></span><textarea name="purpose" rows="2" maxlength="4000" placeholder="Краткое описание"></textarea></label>
+            <button class="button button-secondary" type="submit">Добавить узел</button><p class="status" id="node-status" role="status"></p>
+          </form>
+        </details>
+      </section>
+      <section class="machine-tab-panel" data-machine-tab-panel="problems" hidden>
+        <div class="subheading"><h3>Неисправности</h3></div>
+        <div id="problem-list" class="item-list"><p class="empty">Пока здесь пусто. Добавьте руководство PDF, чтобы искать в нём ответы.</p></div>
+        <details class="assistant-panel" id="assistant-panel">
+          <summary>Спросить по руководству</summary>
+          <p>Ответ будет опираться на загруженный документ. Если подтверждения нет, Kolibri сообщит об этом.</p>
+          <form id="manual-question-form" class="assistant-form">
+            <label class="field"><span>Ваш вопрос</span><input name="question" maxlength="2000" required placeholder="Опишите неисправность или задайте вопрос"></label>
+            <button class="button button-primary" type="submit">Найти ответ</button>
+          </form>
+          <div id="manual-question-result" class="assistant-result" role="status" aria-live="polite" hidden></div>
+        </details>
+      </section>
     </section>
 
     </div>

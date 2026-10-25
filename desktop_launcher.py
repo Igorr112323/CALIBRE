@@ -76,8 +76,9 @@ def run_self_test() -> None:
             raise RuntimeError("Windows EXE self-test: форма создания машины не загрузилась")
         if "Ollama" in admin_html or "local-ai-panel" in admin_html:
             raise RuntimeError("Windows EXE self-test: техническая панель локальной модели не должна отображаться")
-        if "new-machine-photo-previews" not in admin_html or "manual-question-form" not in admin_html:
-            raise RuntimeError("Windows EXE self-test: форма карточки или вопроса по руководству не загрузилась")
+        if ("new-machine-photo-previews" not in admin_html or "manual-question-form" not in admin_html
+                or any(f'data-admin-tab="{tab}"' not in admin_html for tab in ("scheme", "nodes", "problems"))):
+            raise RuntimeError("Windows EXE self-test: разделы карточки или вопроса по руководству не загрузились")
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/admin/static/admin/kolibri-mark.png", timeout=10) as response:
             if response.status != 200 or not response.headers.get("Content-Type", "").startswith("image/png"):
                 raise RuntimeError("Windows EXE self-test: логотип Kolibri не загрузился")

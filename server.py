@@ -89,6 +89,14 @@ class NodeCreate(BaseModel):
     marker_photo_id: int | None = Field(default=None, gt=0)
 
 
+class NodeUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=240)
+    purpose: str = Field(default="", max_length=4000)
+    map_x: float | None = Field(default=None, ge=0, le=1)
+    map_y: float | None = Field(default=None, ge=0, le=1)
+    marker_photo_id: int | None = Field(default=None, gt=0)
+
+
 class AssistantRequest(BaseModel):
     machine_id: int = Field(gt=0)
     question: str = Field(min_length=1, max_length=2000)
@@ -381,6 +389,8 @@ def create_app(database_url: str | None = None, include_demo: bool = True,
             machine.model = body.model.strip()
             machine.machine_type = body.machine_type.strip()
             machine.description = body.description.strip()
+            if machine.status == "published":
+                machine.status = "draft"
             session.commit()
             return {"id": machine.id, "code": machine.code, "manufacturer": machine.manufacturer,
                     "model": machine.model, "machine_type": machine.machine_type,
@@ -446,6 +456,39 @@ def create_app(database_url: str | None = None, include_demo: bool = True,
                     "map_x": float(node.map_x) if node.map_x is not None else None,
                     "map_y": float(node.map_y) if node.map_y is not None else None,
                     "marker_photo_id": node.marker_photo_id}
+
+    @app.put("/api/admin/nodes/{node_id}")
+    async def admin_update_node(node_id: int, body: NodeUpdate):
+        if (body.map_x is None) != (body.map_y is None):
+            raise HTTPException(status_code=422, detail="Для отметки укажите обе координаты фото")
+        if body.marker_photo_id is not None and (body.map_x is None or body.map_y is None):
+            raise HTTPException(status_code=422, detail="Для узла на фото нужны координаты")
+        with Session(app.state.engine) as session:
+            node = session.get(Node, node_id)
+            if node is None:
+                raise HTTPException(status_code=404, detail="Узел не найден")
+            machine = session.get(Machine, node.machine_id)
+            if machine is None or machine.is_demo or machine.status == "archived":
+                raise HTTPException(status_code=404, detail="Рабочая техника не найдена")
+            marker_photo = None
+            if body.marker_photo_id is not None:
+                marker_photo = session.get(Photo, body.marker_photo_id)
+                if marker_photo is None or marker_photo.machine_id != node.machine_id:
+                    raise HTTPException(status_code=422, detail="Фото отметки не относится к этой технике")
+            node.title = body.title.strip()
+            node.purpose = body.purpose.strip()
+            node.map_x = body.map_x
+            node.map_y = body.map_y
+            node.marker_photo_id = marker_photo.id if marker_photo else None
+            node.status = "review"
+            if machine.status == "published":
+                machine.status = "draft"
+            session.commit()
+            return {"id": node.id, "number": node.number, "title": node.title,
+                    "purpose": node.purpose, "status": node.status,
+                    "map_x": float(node.map_x) if node.map_x is not None else None,
+                    "map_y": float(node.map_y) if node.map_y is not None else None,
+                    "marker_photo_id": node.marker_photo_id, "machine_status": machine.status}
 
     @app.get("/api/admin/documents")
     async def admin_documents(machine_id: int | None = Query(default=None, gt=0)):

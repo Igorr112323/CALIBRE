@@ -1,6 +1,6 @@
 (() => {
   const $ = (selector) => document.querySelector(selector);
-  const state = { screen: 'home', returnScreen: null, returnMachineId: null, machines: [], machineId: null, newFlow: false, newMachinePhotos: [], nodes: [], documents: [], photos: [] };
+  const state = { screen: 'home', returnScreen: null, returnMachineId: null, machines: [], machineId: null, newFlow: false, newMachinePhotos: [], nodes: [], documents: [], photos: [], machineTab: 'scheme', movingNodeId: null };
   const setupForm = $('#setup-form');
   const modelField = setupForm.elements.model;
   const fileInput = $('#manual-file');
@@ -108,8 +108,9 @@
     $('#machine-create-panel').hidden = !state.newFlow;
     $('#wizard-panel').hidden = hasMachine || state.newFlow;
     $('#machine-panel').hidden = !hasMachine || state.newFlow;
-    $('#content-panel').hidden = !hasMachine || state.newFlow;
+    $('.intro').hidden = hasMachine || state.newFlow;
     $('#page-heading').textContent = state.newFlow ? 'Добавим новую технику' : (hasMachine ? `${machine.manufacturer} ${machine.model}` : 'Соберём базу Kolibri вместе');
+    $('#machine-card-heading').textContent = hasMachine ? `${machine.manufacturer} ${machine.model}` : 'Карточка машины';
     modelField.parentElement.hidden = hasMachine || state.newFlow;
     modelField.required = !hasMachine && !state.newFlow;
     if (hasMachine) {
@@ -117,15 +118,18 @@
       $('#machine-panel [name="model"]').value = machine.model || '';
       $('#machine-panel [name="machine_type"]').value = machine.machine_type || '';
       $('#machine-panel [name="description"]').value = machine.description || '';
-      $('#manual-state').textContent = state.documents.length ? `${state.documents.length} PDF обработано` : 'Добавьте руководство';
-      $('#manual-state').classList.toggle('ready', state.documents.length > 0);
       $('#machine-publish-toggle').checked = machine.status === 'published';
       $('#publication-state').textContent = machine.status === 'published'
         ? 'Опубликовано: карточка доступна в APK. Снятие галочки уберёт её из приложения.'
         : 'Черновик: карточка видна в каталоге админки серой, но не передаётся в APK.';
       $('#publication-review').classList.toggle('is-published', machine.status === 'published');
-    } else {
     }
+    document.querySelectorAll('[data-machine-tab-panel]').forEach((panel) => {
+      panel.hidden = panel.dataset.machineTabPanel !== state.machineTab;
+    });
+    document.querySelectorAll('[data-admin-tab]').forEach((tab) => {
+      tab.classList.toggle('active', tab.dataset.adminTab === state.machineTab);
+    });
     renderMachinePicker();
     renderNodes();
     renderPhotos();
@@ -160,7 +164,16 @@
     photoSelect.innerHTML = '<option value="">Фото всей машины / без узла</option>' + state.nodes.map((node) => `<option value="${node.id}">${node.number}. ${escapeHtml(node.title)}</option>`).join('');
     if (state.nodes.some((node) => String(node.id) === current)) photoSelect.value = current;
     list.innerHTML = state.nodes.length ? state.nodes.map((node) => `
-      <article class="item-row"><span class="item-number">${node.number}</span><div><strong>${escapeHtml(node.title)}</strong>${node.purpose ? `<small>${escapeHtml(node.purpose)}</small>` : '<small>Назначение можно добавить в заметке при следующем обновлении карточки.</small>'}</div></article>`).join('') : '<p class="empty">Добавьте первый узел — например, раму или колесо.</p>';
+      <article class="item-row node-editor-row"><span class="item-number">${node.number}</span><div class="node-editor-content"><strong>${escapeHtml(node.title)}</strong>${node.purpose ? `<small>${escapeHtml(node.purpose)}</small>` : ''}
+        <details class="node-edit-details"><summary>Изменить</summary>
+          <form class="node-edit-form" data-node-id="${node.id}">
+            <label class="field"><span>Название узла</span><input name="title" required maxlength="240" value="${escapeHtml(node.title)}"></label>
+            <label class="field"><span>Назначение <small>необязательно</small></span><textarea name="purpose" rows="2" maxlength="4000">${escapeHtml(node.purpose || '')}</textarea></label>
+            <button class="button button-secondary" type="submit">Сохранить</button>
+          </form>
+          ${node.marker_photo_id ? `<button class="button button-ghost button-small" type="button" data-move-node-id="${node.id}">Переместить точку на фото</button>` : ''}
+        </details>
+      </div></article>`).join('') : '<p class="empty">Добавьте первый узел на фото или кнопкой ниже.</p>';
   }
   function renderPhotos() {
     const list = $('#photo-list');
@@ -169,7 +182,7 @@
       const markers = state.nodes.filter((node) => node.marker_photo_id === photo.id && node.map_x != null && node.map_y != null);
       const pins = markers.map((node) => `<span class="admin-photo-pin" style="left:${Math.max(0, Math.min(100, node.map_x * 100))}%;top:${Math.max(0, Math.min(100, node.map_y * 100))}%" title="${escapeHtml(node.title)}">${node.number}</span>`).join('');
       const markerLabels = markers.map((node) => `<span class="photo-marker-label"><b>${node.number}</b> ${escapeHtml(node.title)}</span>`).join('');
-      return `<article class="photo-item"><a class="admin-photo-canvas" href="${escapeHtml(photo.url)}" target="_blank" rel="noopener"><img src="${escapeHtml(photo.url)}" alt="${escapeHtml(photo.caption || 'Фото техники')}" loading="lazy">${pins}</a><p>${escapeHtml(photo.caption || photo.filename || 'Фото')}${photo.node_id ? ' · узел' : ''}</p>${markerLabels ? `<div class="photo-marker-labels">${markerLabels}</div>` : ''}<button type="button" class="button button-small ${photo.sync_to_phones ? 'button-secondary' : 'button-ghost'}" data-photo-sync="${photo.id}">${photo.sync_to_phones ? 'Отключить LAN-sync' : 'Разрешить передачу по LAN'}</button><small>${photo.sync_to_phones ? 'Фото остаётся внутренним; только локальная сеть.' : 'Сейчас доступно только на ПК.'}</small></article>`;
+      return `<article class="photo-item"><a class="admin-photo-canvas" data-photo-id="${photo.id}" href="${escapeHtml(photo.url)}" target="_blank" rel="noopener"><img src="${escapeHtml(photo.url)}" alt="${escapeHtml(photo.caption || 'Фото техники')}" loading="lazy">${pins}</a><p>${escapeHtml(photo.caption || photo.filename || 'Фото')}${photo.node_id ? ' · узел' : ''}</p>${markerLabels ? `<div class="photo-marker-labels">${markerLabels}</div>` : ''}<button type="button" class="button button-small ${photo.sync_to_phones ? 'button-secondary' : 'button-ghost'}" data-photo-sync="${photo.id}">${photo.sync_to_phones ? 'Не передавать в приложение' : 'Передавать в приложение'}</button><small>${photo.sync_to_phones ? 'Передача включена по локальной сети.' : 'Фото хранится только на этом компьютере.'}</small></article>`;
     }).join('') : '<p class="empty">Загруженные фото появятся здесь.</p>';
   }
   function renderDocuments() {
@@ -194,6 +207,7 @@
     state.screen = 'workspace';
     state.machineId = null;
     state.newFlow = true;
+    state.machineTab = 'scheme';
     clearNewMachinePhotos();
     $('#machine-create-form').reset();
     setStatus('#machine-create-status', '');
@@ -254,6 +268,7 @@
     if (!card) return;
     state.screen = 'workspace';
     state.newFlow = false;
+    state.machineTab = 'scheme';
     state.machineId = Number(card.dataset.openMachine) || null;
     try { await loadMachineData(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
     catch (error) { setStatus('#setup-status', error.message, 'bad'); }
@@ -285,6 +300,11 @@
     if (missingLabel) {
       setStatus('#machine-create-status', 'Подпишите каждый пронумерованный узел или удалите ненужную отметку.', 'bad');
       form.querySelector('[data-marker-title]:invalid')?.focus();
+      return;
+    }
+    if (!photos.length) {
+      setStatus('#machine-create-status', 'Добавьте хотя бы одно фото техники.', 'bad');
+      $('#new-machine-photos').focus();
       return;
     }
     if (pdfFile && !pdfFile.name.toLowerCase().endsWith('.pdf')) {
@@ -333,6 +353,7 @@
       state.newFlow = false;
       state.screen = 'workspace';
       state.machineId = createdMachine.id;
+      state.machineTab = 'scheme';
       state.returnMachineId = null;
       state.returnScreen = null;
       clearNewMachinePhotos();
@@ -340,8 +361,8 @@
       try { await loadMachines(createdMachine.id); }
       catch (error) { failure = failure || error; }
       setStatus('#card-status', failure
-        ? `Черновик создан, но не все файлы удалось загрузить: ${failure.message}. Откройте разделы ниже и добавьте недостающие данные.`
-        : 'Черновик создан. Проверьте название, фото, отметки и руководство; галочка выше опубликует карточку в приложении.',
+        ? `Карточка создана, но не все файлы удалось загрузить: ${failure.message}. Проверьте вкладку «Схема».`
+        : 'Карточка создана как черновик. Проверьте её разделы; галочка выше публикует её в приложении.',
       failure ? 'bad' : 'good');
       if (failure) $('#card-status').scrollIntoView({ behavior: 'smooth', block: 'center' });
     } else {
@@ -366,9 +387,20 @@
       setStatus('#card-status', error.message, 'bad');
     } finally { toggle.disabled = false; }
   });
+  $('#machine-panel').addEventListener('click', (event) => {
+    const tab = event.target.closest('[data-admin-tab]');
+    if (!tab) return;
+    state.machineTab = tab.dataset.adminTab;
+    document.querySelectorAll('[data-machine-tab-panel]').forEach((panel) => {
+      panel.hidden = panel.dataset.machineTabPanel !== state.machineTab;
+    });
+    document.querySelectorAll('[data-admin-tab]').forEach((item) => {
+      item.classList.toggle('active', item === tab);
+    });
+  });
   $('#machine-select').addEventListener('change', async (event) => {
     state.screen = 'workspace';
-    state.machineId = Number(event.target.value) || null; state.newFlow = false;
+    state.machineId = Number(event.target.value) || null; state.newFlow = false; state.machineTab = 'scheme';
     try { await loadMachineData(); } catch (error) { setStatus('#setup-status', error.message, 'bad'); }
   });
 
@@ -441,6 +473,66 @@
     } catch (error) { setStatus('#card-status', error.message, 'bad'); }
     finally { setBusy(button, false); }
   });
+  $('#node-list').addEventListener('submit', async (event) => {
+    const form = event.target.closest('.node-edit-form');
+    if (!form) return;
+    event.preventDefault();
+    const node = state.nodes.find((item) => String(item.id) === form.dataset.nodeId);
+    if (!node) return;
+    const data = Object.fromEntries(new FormData(form).entries());
+    const button = form.querySelector('button[type="submit"]');
+    setBusy(button, true, 'Сохраняю…');
+    try {
+      const updated = await request(`/api/admin/nodes/${node.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...data, map_x: node.map_x, map_y: node.map_y, marker_photo_id: node.marker_photo_id }),
+      });
+      await loadMachines(state.machineId);
+      setStatus('#node-status', updated.machine_status === 'draft'
+        ? 'Изменение сохранено. Карточка снова стала черновиком — проверьте и опубликуйте её заново.'
+        : 'Изменение сохранено.', 'good');
+    } catch (error) { setStatus('#node-status', error.message, 'bad'); }
+    finally { setBusy(button, false); }
+  });
+  $('#node-list').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-move-node-id]');
+    if (!button) return;
+    state.movingNodeId = Number(button.dataset.moveNodeId);
+    state.machineTab = 'scheme';
+    document.querySelectorAll('[data-machine-tab-panel]').forEach((panel) => { panel.hidden = panel.dataset.machineTabPanel !== 'scheme'; });
+    document.querySelectorAll('[data-admin-tab]').forEach((tab) => { tab.classList.toggle('active', tab.dataset.adminTab === 'scheme'); });
+    setStatus('#photo-status', 'Нажмите на нужное место на фото, чтобы переместить точку.', '');
+  });
+  $('#photo-list').addEventListener('click', async (event) => {
+    if (state.movingNodeId == null) return;
+    const canvas = event.target.closest('.admin-photo-canvas');
+    if (!canvas) return;
+    event.preventDefault();
+    const node = state.nodes.find((item) => item.id === state.movingNodeId);
+    const photo = state.photos.find((item) => String(item.id) === canvas.dataset.photoId);
+    const image = canvas.querySelector('img');
+    if (!node || !photo || !image) return;
+    const rect = image.getBoundingClientRect();
+    const mapX = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    const mapY = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
+    try {
+      const updated = await request(`/api/admin/nodes/${node.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: node.title, purpose: node.purpose || '', map_x: mapX, map_y: mapY, marker_photo_id: photo.id }),
+      });
+      state.movingNodeId = null;
+      await loadMachines(state.machineId);
+      state.machineTab = 'scheme';
+      render();
+      setStatus('#photo-status', updated.machine_status === 'draft'
+        ? 'Точка перемещена. Карточка стала черновиком — проверьте и опубликуйте её заново.'
+        : 'Точка перемещена.', 'good');
+    } catch (error) {
+      state.movingNodeId = null;
+      setStatus('#photo-status', error.message, 'bad');
+    }
+  });
+
   $('#node-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;

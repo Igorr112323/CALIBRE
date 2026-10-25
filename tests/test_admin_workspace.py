@@ -79,6 +79,18 @@ class SimpleAdminWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(mobile_photo.status_code, 200, mobile_photo.text)
         self.assertEqual(mobile_photo.headers["content-type"], "image/jpeg")
 
+        edited = await self.client.put(f"/api/admin/nodes/{marker.json()['id']}", json={
+            "title": "Колесо опорное", "purpose": "Поддерживает раму",
+            "map_x": 0.31, "map_y": 0.62, "marker_photo_id": photo_id,
+        })
+        self.assertEqual(edited.status_code, 200, edited.text)
+        self.assertEqual(edited.json()["machine_status"], "draft")
+        self.assertEqual((await self.client.get("/api/mobile/catalog")).json()["real_machines"], [])
+        republished = await self.client.put(f"/api/admin/machines/{machine_id}/publication", json={"published": True})
+        self.assertEqual(republished.status_code, 200, republished.text)
+        mobile_after_edit = (await self.client.get("/api/mobile/catalog")).json()["real_machines"]
+        self.assertEqual(mobile_after_edit[0]["nodes"][0]["title"], "Колесо опорное")
+
         unpublished = await self.client.put(f"/api/admin/machines/{machine_id}/publication", json={"published": False})
         self.assertEqual(unpublished.status_code, 200, unpublished.text)
         self.assertEqual(unpublished.json()["status"], "draft")
@@ -98,6 +110,14 @@ class SimpleAdminWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         })
         self.assertEqual(updated.status_code, 200, updated.text)
         self.assertEqual(updated.json()["description"], "Навесная машина")
+        first_publish = await self.client.put(f"/api/admin/machines/{machine_id}/publication", json={"published": True})
+        self.assertEqual(first_publish.status_code, 200, first_publish.text)
+        edited_after_publish = await self.client.put(f"/api/admin/machines/{machine_id}", json={
+            "manufacturer": "Kolibri", "model": "ГРН-471", "machine_type": "Роторные грабли",
+            "description": "Описание изменено после проверки",
+        })
+        self.assertEqual(edited_after_publish.status_code, 200, edited_after_publish.text)
+        self.assertEqual(edited_after_publish.json()["status"], "draft")
 
         node = await self.client.post("/api/admin/nodes", json={
             "machine_id": machine_id, "title": "Опорное колесо", "purpose": "Поддерживает раму",
