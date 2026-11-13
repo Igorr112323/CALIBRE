@@ -8,7 +8,8 @@
     "cap:sync": "npm run build && cap sync android",
     "android:open": "npm run cap:sync && cap open android",
     "android:debug": "npm run cap:sync && cd android && gradlew.bat assembleDebug",
-    "capacitor:update:after": "node clean-generated.mjs"
+    "capacitor:update:after": "node clean-generated.mjs",
+    "build:stand": "npm run build && node build-stand.mjs"
   },
   "dependencies": {
     "@capacitor/android": "8.4.3",
