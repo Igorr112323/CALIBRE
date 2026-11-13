@@ -53,7 +53,7 @@ jobs:
           mkdir -p ../../dist
           cp app/build/outputs/apk/debug/app-debug.apk ../../dist/Kolibri-Mehfak.apk
       - name: Store APK shell in current branch
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish_base == 'true'
+        if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Build APK shell')
         run: |
           mkdir -p base
           cp mobile/android/app/build/outputs/apk/debug/app-debug.apk base/Kolibri-Mehfak.apk
@@ -70,7 +70,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - name: Publish latest APK release
-        if: github.event.inputs.publish_base != 'true'
+        if: "${{ !startsWith(github.event.head_commit.message, 'Build APK shell') }}"
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
