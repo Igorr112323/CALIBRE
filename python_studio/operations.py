@@ -6,6 +6,35 @@ from local_ai import CHAT_SCHEMA, SUMMARY_SCHEMA, SYSTEM_PROMPT
 
 SECTION_IDS = ['adjustments', 'parts', 'maintenance', 'nodes', 'storage', 'specs', 'faults']
 SECTION_TITLES = ['Регулировки', 'Детали', 'ТО и смазка', 'Узлы', 'Хранение', 'ТТХ и агрегатирование', 'Неисправности и ТБ']
+NUMBER_RE = re.compile(r'(?<!\d)[+−-]?\d+(?:[.,]\d+)?')
+QUANTITY_RE = re.compile(r'(?<![\w.,])(?P<number>[+−-]?\d+(?:[.,]\d+)?)\s*(?P<unit>кгс\s*/\s*см[²2]|км\s*/\s*ч|м\s*/\s*с|л\s*/\s*мин|об\s*/\s*мин|н\s*[·⋅.*-]\s*м|мпа|кпа|кн|мм|см|мкм|кг|бар|градусов|градуса|градус|метров|метра|метр|°[сc]?|%|м|г|л|па)(?![а-яёa-z])', re.IGNORECASE)
+
+
+def numeric_tokens(text):
+    return {match.group().replace('−', '-').replace(',', '.') for match in NUMBER_RE.finditer(text)}
+
+
+def quantities(text):
+    result = []
+    for match in QUANTITY_RE.finditer(text):
+        number = match.group('number').replace('−', '-').replace(',', '.')
+        unit = re.sub(r'\s+', '', match.group('unit').casefold()).replace('⋅', '·').replace('*', '·').replace('.', '·')
+        result.append(((number, unit), match.group().strip()))
+    return result
+
+
+def unverified_quantities(context, instruction, answer):
+    source = [instruction, context.get('selection', ''), context.get('model', ''), context.get('machine_type', ''),
+              context.get('adjustment_title', ''), context.get('adjustment_subtitle', ''),
+              *(item['value'] for item in context['allowed'])]
+    known = {key for value in source for key, _ in quantities(value)}
+    generated = [answer['reply'], *(op[key] for op in answer['operations'] for key in ('value', 'title'))]
+    unknown = {}
+    for value in generated:
+        for key, label in quantities(value):
+            if key not in known:
+                unknown.setdefault(key, label)
+    return list(unknown.values())[:20]
 
 
 def machine_by_id(project, machine_id):
@@ -27,14 +56,30 @@ def selected_context(machine, screen, selection):
         index = next((i for i, item in enumerate(machine['adjustments']) if item['id'] == screen.get('adjustment')), None)
         if index is not None:
             item = machine['adjustments'][index]
-            for field in ('title', 'subtitle'):
-                allowed.append({'path': f'/adjustments/{index}/{field}', 'value': item.get(field, '')})
-            for n, step in enumerate(item.get('steps', [])):
+            steps = item.get('steps', [])
+            selected = screen.get('step')
+            if selected is None:
+                for field in ('title', 'subtitle'):
+                    allowed.append({'path': f'/adjustments/{index}/{field}', 'value': item.get(field, '')})
+                indices = list(range(len(steps)))
+            else:
+                selected = str(selected)
+                if not selected.isdigit() or int(selected) >= len(steps):
+                    raise ValueError('Выбранный шаг не найден.')
+                selected_index = int(selected)
+                indices = [selected_index]
+                result['adjustment_title'] = item.get('title', '')
+                result['adjustment_subtitle'] = item.get('subtitle', '')
+                result['selected_step_path'] = f'/adjustments/{index}/steps/{selected_index}'
+                result['steps_total'] = len(steps)
+            for n in indices:
                 for field in ('title', 'text'):
-                    allowed.append({'path': f'/adjustments/{index}/steps/{n}/{field}', 'value': step.get(field, '')})
+                    allowed.append({'path': f'/adjustments/{index}/steps/{n}/{field}', 'value': steps[n].get(field, '')})
             result['add_step_path'] = f'/adjustments/{index}/steps'
-            result['insert_step_paths'] = [f'/adjustments/{index}/steps/{n}' for n in range(len(item.get('steps', [])))]
+            result['insert_step_paths'] = [f'/adjustments/{index}/steps/{n}' for n in indices]
             result['remove_step_paths'] = list(result['insert_step_paths'])
+        else:
+            raise ValueError('Выбранная регулировка не найдена.')
     elif screen.get('screen') == 'part':
         group_index = next((i for i, item in enumerate(machine['partGroups']) if item['id'] == screen.get('group')), None)
         if group_index is not None:
@@ -108,6 +153,49 @@ def locate(root, parts):
     return node
 
 
+def bind_step_media(machine, prepared):
+    bindings = {}
+    media = machine.get('media', {})
+    for action, target, anchor, value, title, parts in prepared:
+        if action not in ('add_step', 'remove_step'):
+            continue
+        adjustment = machine['adjustments'][int(parts[1])]
+        identifier = adjustment['id']
+        binding = bindings.setdefault(identifier, {'adjustment': adjustment, 'steps': list(adjustment['steps']), 'delta': 0})
+        binding['delta'] += 1 if action == 'add_step' else -1
+    for identifier, binding in bindings.items():
+        prefix = f'adjustments/{identifier}/'
+        old_length = len(binding['steps'])
+        new_length = old_length + binding['delta']
+        binding['prefix'] = prefix
+        binding['images'] = {}
+        for key, value in media.items():
+            if not key.startswith(prefix):
+                continue
+            suffix = key[len(prefix):]
+            if not suffix.isascii() or not suffix.isdigit() or suffix != str(int(suffix)):
+                continue
+            index = int(suffix)
+            if index < old_length:
+                binding['images'][index] = value
+            elif index < new_length:
+                raise ValueError('Есть изображение вне списка шагов: оно может попасть к новому шагу. Проверьте каталог вручную; изменения не применены.')
+    return bindings
+
+
+def restore_step_media(machine, bindings):
+    media = machine.get('media', {})
+    for binding in bindings.values():
+        prefix = binding['prefix']
+        positions = {id(step): index for index, step in enumerate(binding['adjustment']['steps'])}
+        for index in binding['images']:
+            media.pop(prefix + str(index), None)
+        for old_index, image in binding['images'].items():
+            new_index = positions.get(id(binding['steps'][old_index]))
+            if new_index is not None:
+                media[prefix + str(new_index)] = image
+
+
 def apply_operations(machine, context, operations):
     paths = {item['path'] for item in context['allowed']}
     truncated = {item['path'] for item in context['allowed'] if item.get('truncated')}
@@ -115,6 +203,10 @@ def apply_operations(machine, context, operations):
     removals = [op['path'] for op in operations if op['action'] in ('remove_step', 'remove_item')]
     for operation in operations:
         action, path, value, title = (operation[key] for key in ('action', 'path', 'value', 'title'))
+        if action == 'set' and title.strip():
+            raise ValueError('ИИ заполнил лишний заголовок операции set; изменения не применены.')
+        if action in ('remove_step', 'remove_item') and (value.strip() or title.strip()):
+            raise ValueError('ИИ заполнил лишние поля операции удаления; изменения не применены.')
         if action not in ('remove_step', 'remove_item') and not value.strip():
             raise ValueError('ИИ предложил пустое содержимое; изменения не применены.')
         if action not in ('remove_step', 'remove_item') and any(path.startswith(prefix + '/') for prefix in removals):
@@ -155,6 +247,7 @@ def apply_operations(machine, context, operations):
             prepared.append((action, locate(machine, parts[:-1]), locate(machine, parts), value, title, parts))
         else:
             raise ValueError('Неизвестное действие ИИ.')
+    media_bindings = bind_step_media(machine, prepared)
     changed = 0
     for action, target, anchor, value, title, parts in prepared:
         if action == 'set':
@@ -197,7 +290,15 @@ def apply_operations(machine, context, operations):
                 section = next((item for item in machine['sections'] if item['id'] == 'adjustments'), None)
                 if section:
                     section['items'] = [item for item in section['items'] if item['id'] != removed['id']]
+                prefix = f"adjustments/{removed['id']}/"
+                media = machine.get('media', {})
+                for key in [key for key in media if key.startswith(prefix)]:
+                    del media[key]
+            elif action == 'remove_item' and parts[0] == 'sections':
+                section = locate(machine, parts[:2])
+                machine.get('media', {}).pop(f"{section['id']}/{removed['id']}", None)
         changed += 1
+    restore_step_media(machine, media_bindings)
     return changed
 
 
@@ -205,16 +306,14 @@ def chat(ai, machine, screen, selection, instruction, history, profile, custom, 
     if not isinstance(instruction, str) or not instruction.strip() or len(instruction) > 4000:
         raise ValueError('Введите запрос длиной до 4000 символов.')
     context = selected_context(machine, screen, selection)
-    rules = '''Доступные действия: set заменяет только поле из списка allowed по его path; add_step добавляет шаг по add_step_path в конец или по одному из insert_step_paths непосредственно после соответствующего шага; add_item добавляет пункт по add_item_path; add_adjustment создаёт регулировку по add_adjustment_path с первым шагом. remove_step и remove_item удаляют элемент только по соответствующему списку путей. Для каждого действия верни action, path, value и title. В set title оставь пустой строкой; при удалении value и title оставь пустыми. При добавлении нескольких шагов после одной позиции перечисли их в обратном порядке. Не изменяй ничего вне выбранного экрана. Если пользователь задаёт вопрос, а не просит изменить, верни пустой список operations. Не сокращай текст при правке, если этого не просили. Сохраняй точные числа, если пользователь не требует изменить их. Поля с truncated=true показаны не полностью: их нельзя изменить через set; для их правки предложи ручной редактор. Если контекст сокращён, объясни пользователю, что для правки остальных пунктов их нужно открыть. Для полей источника и изображений операций нет; объясни ограничение. Не используй дополнительные пути.'''
+    rules = '''Ответь на запрос, пользуясь только данными контекста. Если просят только объяснить, найти сведения или ничего не менять, ответь текстом, а operations оставь пустым массивом []. Не повторяй все поля без необходимости. Если сведений нет, скажи об этом. Ответ и предложенные правки должны соответствовать запросу и друг другу.
+Для правки: set заменяет только поле из allowed по его path; add_step добавляет шаг в конец по add_step_path или после указанного шага по insert_step_paths; add_item добавляет пункт по add_item_path; add_adjustment добавляет регулировку с первым шагом по add_adjustment_path. remove_step и remove_item удаляют только по соответствующему списку путей. Для каждой операции верни action, path, value и title: при set title пустой; при удалении value и title пустые. При добавлении нескольких шагов после одного перечисли их в обратном порядке. Не изменяй другие объекты, если об этом не просили. Не сокращай текст без просьбы. Сохраняй точные числа, если их не просили изменить. Поля truncated=true нельзя изменять через set; предложи ручной редактор. Если контекст сокращён, предложи открыть нужный пункт. Для источника и изображений операций нет. Не выдумывай пути. Предложения будут показаны пользователю до сохранения.'''
     safe_history = [entry for entry in history[-4:] if isinstance(entry, dict) and entry.get('role') in ('user', 'assistant') and isinstance(entry.get('content'), str)]
     messages = [{'role': 'system', 'content': SYSTEM_PROMPT + '\n' + rules}]
     messages.extend({'role': entry['role'], 'content': entry['content'][:750]} for entry in safe_history)
     messages.append({'role': 'user', 'content': json.dumps({'контекст': context, 'запрос': instruction}, ensure_ascii=False)})
     answer = ai.complete(messages, CHAT_SCHEMA, profile, custom, acceleration, 4096)
-    allowed = {item['path'] for item in context['allowed']}
-    for op in answer['operations']:
-        if op['action'] == 'set' and op['path'] not in allowed:
-            raise ValueError('ИИ предложил правку вне выбранного экрана; данные не изменены.')
+    answer['unverified_quantities'] = unverified_quantities(context, instruction, answer)
     if context['context_truncated']:
         answer['reply'] = answer['reply'].rstrip() + '\n\nКонтекст ИИ сокращён. Откройте нужный пункт; поля, показанные не полностью, можно изменить вручную.'
     return answer, context
@@ -245,11 +344,15 @@ def enrich(ai, machine, progress, profile, custom, acceleration):
             try:
                 result = ai.complete([{'role': 'system', 'content': SYSTEM_PROMPT}, {'role': 'user', 'content': prompt}], SUMMARY_SCHEMA, profile, custom, acceleration, 1500)
                 mapping = {item['key']: item['target'] for item in batch}
+                sources = {item['key']: item['title'] + ' ' + item['text'][:1800] for item in batch}
                 seen = set()
                 for item in result['items']:
                     if item['id'] not in mapping or item['id'] in seen:
                         raise ValueError('ИИ вернул неизвестный или повторный id.')
                     seen.add(item['id'])
+                    source = sources[item['id']]
+                    if numeric_tokens(item['summary']) - numeric_tokens(source) or {key for key, _ in quantities(item['summary'])} - {key for key, _ in quantities(source)}:
+                        raise ValueError('ИИ добавил числовое значение или единицу, которых нет в исходном пункте.')
                 if seen != set(mapping):
                     raise ValueError('ИИ пропустил элементы пакета.')
                 for item in result['items']:

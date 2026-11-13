@@ -376,6 +376,71 @@ $$('[data-close]').forEach(button => button.addEventListener('click', () => $('#
 function chatLine(text, type) {
   const item = document.createElement('div'); item.className = 'chat-message ' + type; item.textContent = text; $('#chatLog').append(item); $('#chatLog').scrollTop = $('#chatLog').scrollHeight;
 }
+function reviewPath(path) {
+  if (!path) return '';
+  const labels = {adjustments: 'Регулировки', steps: 'Шаги', sections: 'Разделы', items: 'Пункты', partGroups: 'Группы деталей', title: 'Название', subtitle: 'Подзаголовок', text: 'Текст', summary: 'Пояснение', name: 'Наименование', designation: 'Обозначение', quantity: 'Количество', note: 'Примечание', purpose: 'Назначение', inspection: 'Осмотр', badge: 'Метка', reason: 'Причина', image: 'Изображение'};
+  return path.split('/').slice(1).map(part => {part = part.replace(/~1/g, '/').replace(/~0/g, '~'); return /^\d+$/.test(part) ? String(Number(part) + 1) : (labels[part] || part);}).join(' › ');
+}
+function showProposal(proposal) {
+  const card = document.createElement('section'); card.className = 'chat-review';
+  const heading = document.createElement('strong'); heading.textContent = `Предложение ИИ · ${proposal.machine}`; card.append(heading);
+  const note = document.createElement('p'); note.textContent = 'Данные ещё не изменены. Просмотрите все поля, удаления и числа; сверьте их с оригиналом. Связанные схемы и старые пояснения могут не обновиться — проверьте их отдельно.'; card.append(note);
+  if (proposal.changes.some(change => change.before_path?.endsWith('/text') && change.before.length >= 80 && change.after_present && change.after.length < change.before.length * .4)) {
+    const warning = document.createElement('p'); warning.className = 'chat-review-warning'; warning.textContent = 'Внимание: текст сильно сокращён. Проверьте, не исчезли ли важные действия и меры безопасности.'; card.append(warning);
+  }
+  const list = document.createElement('div'); list.className = 'chat-review-list'; list.tabIndex = 0;
+  for (const change of proposal.changes) {
+    const item = document.createElement('article'); item.className = 'chat-review-change';
+    const path = document.createElement('strong');
+    const oldPath = reviewPath(change.before_path), newPath = reviewPath(change.after_path);
+    path.textContent = oldPath && newPath && oldPath !== newPath ? `${oldPath} → ${newPath}` : (oldPath || newPath);
+    item.append(path);
+    for (const [label, present, value] of [['Было', change.before_present, change.before], ['Станет', change.after_present, change.after]]) {
+      const group = document.createElement('div'); const caption = document.createElement('small'); caption.textContent = label;
+      const text = document.createElement('pre'); text.textContent = !present ? 'Нет элемента' : value === '' ? 'Пустая строка' : value;
+      group.append(caption, text); item.append(group);
+    }
+    list.append(item);
+  }
+  card.append(list);
+  const acknowledgment = document.createElement('label'); acknowledgment.className = 'chat-review-ack';
+  const checkbox = document.createElement('input'); checkbox.type = 'checkbox';
+  acknowledgment.append(checkbox, document.createTextNode('Я просмотрел все предложенные изменения'));
+  card.append(acknowledgment);
+  const actions = document.createElement('div'); actions.className = 'chat-review-actions';
+  const accept = document.createElement('button'); accept.type = 'button'; accept.className = 'button primary compact'; accept.textContent = 'Сохранить изменения'; accept.disabled = true;
+  const discard = document.createElement('button'); discard.type = 'button'; discard.className = 'button secondary compact'; discard.textContent = 'Отклонить';
+  actions.append(accept, discard); card.append(actions);
+  const status = document.createElement('p'); status.className = 'chat-review-status'; status.setAttribute('aria-live', 'polite'); card.append(status);
+  checkbox.addEventListener('change', () => {accept.disabled = !checkbox.checked;});
+  discard.addEventListener('click', async () => {
+    discard.disabled = true; accept.disabled = true; checkbox.disabled = true;
+    try {
+      await request('/api/chat/discard', jsonOptions('POST', {proposal_id: proposal.id}));
+      status.textContent = 'Предложение отклонено. Его правки не применены.';
+      state.chatHistory.push({role: 'assistant', content: 'Пользователь отклонил предложенные изменения; эти правки не применялись.'});
+    } catch (error) {status.textContent = error.message; discard.disabled = false; checkbox.disabled = false; accept.disabled = !checkbox.checked;}
+  });
+  accept.addEventListener('click', async () => {
+    accept.disabled = true; discard.disabled = true; checkbox.disabled = true;
+    const expectedVersion = state.version;
+    try {
+      const result = await request('/api/chat/apply', jsonOptions('POST', {proposal_id: proposal.id}));
+      if (state.version !== expectedVersion) await loadProject();
+      else {state.project = result.project; state.version = result.version; renderMachine(); refreshPreview();}
+      status.textContent = 'Изменения сохранены. Их можно отменить в текущем сеансе.';
+      state.chatHistory.push({role: 'assistant', content: 'Пользователь подтвердил и сохранил предложенные изменения.'});
+    } catch (error) {
+      let hint = 'Отправьте запрос заново.';
+      if (error.status === 409) {
+        try {await loadProject(); hint = 'Каталог обновлён. Отправьте запрос заново.';} catch {hint = 'Обновите страницу и отправьте запрос заново.';}
+      }
+      status.textContent = `Не сохранено: ${error.message} ${hint}`;
+      discard.disabled = false;
+    }
+  });
+  $('#chatLog').append(card); $('#chatLog').scrollTop = $('#chatLog').scrollHeight;
+}
 $('#chatForm').addEventListener('submit', async event => {
   event.preventDefault();
   const message = $('#chatInput').value.trim();
@@ -383,13 +448,29 @@ $('#chatForm').addEventListener('submit', async event => {
   const screen = previewState() || {machine: state.machineId, screen: 'machine', tab: 'adjustments', step: '0'};
   const scope = `${screen.machine}:${screen.tab}:${screen.screen}:${screen.adjustment || ''}:${screen.step || ''}:${screen.group || ''}:${screen.position || ''}:${screen.item || ''}`;
   const selected = state.scope === scope ? state.selection : '';
+  const expectedVersion = state.version;
   chatLine(message, 'user'); $('#chatInput').value = ''; $('#chatSend').disabled = true; $('#phonePreview').style.pointerEvents = 'none';
   try {
-    const result = await request('/api/chat', jsonOptions('POST', {...config(), machine_id: screen.machine || state.machineId, screen, selection: selected, message, history: state.chatHistory.slice(-6), version: state.version}));
-    chatLine(result.reply, 'assistant'); state.chatHistory.push({role: 'user', content: message}, {role: 'assistant', content: result.reply});
-    state.project = result.project; state.version = result.version; renderMachine();
-    if (result.changed) {refreshPreview(screen); chatLine('Изменения сохранены. Сверьте текст и значения с оригиналом.', 'assistant');}
-  } catch (error) {chatLine(error.message, 'error');} finally {$('#chatSend').disabled = false; $('#phonePreview').style.pointerEvents = '';}
+    const result = await request('/api/chat', jsonOptions('POST', {...config(), machine_id: screen.machine || state.machineId, screen, selection: selected, message, history: state.chatHistory.slice(-6), version: expectedVersion}));
+    chatLine(result.reply, 'assistant');
+    const status = result.proposal ? 'Предложенные изменения ещё не сохранены.' : result.warning || 'Каталог не изменён.';
+    state.chatHistory.push({role: 'user', content: message}, {role: 'assistant', content: result.reply + '\n' + status});
+    if (state.version !== expectedVersion) {
+      if (result.proposal) await request('/api/chat/discard', jsonOptions('POST', {proposal_id: result.proposal.id}));
+      chatLine('Каталог изменился во время ответа. Предложение отклонено; отправьте запрос заново.', 'error');
+    } else {
+      state.project = result.project; state.version = result.version; renderMachine();
+      if (result.unverified_quantities?.length) chatLine(`В ответе или правках есть значения, не найденные в показанном источнике или запросе: ${result.unverified_quantities.join(', ')}. Они не проверены. Сверьте с руководством; автоматическая проверка не гарантирует точности остальных значений.`, 'error');
+      if (result.warning) chatLine(result.warning, 'error');
+      if (result.proposal) showProposal(result.proposal);
+      else if (!result.warning) chatLine('Каталог не изменён. Значения и меры безопасности сверьте с руководством.', 'assistant');
+    }
+  } catch (error) {
+    chatLine(error.message, 'error');
+    if (error.status === 409) {
+      try {await loadProject(); chatLine('Каталог обновлён. Отправьте запрос заново.', 'assistant');} catch {chatLine('Обновите страницу перед повторным запросом.', 'error');}
+    }
+  } finally {$('#chatSend').disabled = false; $('#phonePreview').style.pointerEvents = '';}
 });
 $('#undo').addEventListener('click', async () => {
   try {const result = await request('/api/undo', jsonOptions('POST', {version: state.version})); state.project = result.project; state.version = result.version; if (!machine()) state.machineId = state.project.machines[0]?.id || ''; renderMachine(); refreshPreview(); notify('Последнее изменение отменено');} catch (error) {notify(error.message);}

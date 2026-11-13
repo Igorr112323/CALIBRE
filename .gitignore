@@ -25,3 +25,5 @@ web/app/.vite/
 !web/app/media/
 !web/app/media/**
 studio/node_modules/
+*.gguf
+python_studio/training/output/

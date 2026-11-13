@@ -8,6 +8,7 @@ import secrets
 import threading
 import time
 import uuid
+import zlib
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -17,11 +18,12 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
 
+from ai_review import build_review
 from apk_builder import build_apk
 from document_pipeline import crop_page, image_data_url, parse_document
 from local_ai import LocalAI
 from operations import apply_operations, chat, enrich, machine_by_id
-from store import ConflictError, ProjectStore, validate_project
+from store import ConflictError, ProjectStore, serialize, validate_project
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / 'static'
@@ -32,6 +34,50 @@ JOBS = {}
 JOB_LOCK = threading.RLock()
 TOKEN = secrets.token_urlsafe(24)
 MAX_JSON = 180 * 1024 * 1024
+PROPOSALS = {}
+PROPOSAL_LOCK = threading.RLock()
+PROPOSAL_TTL = 30 * 60
+PROPOSAL_COUNT_LIMIT = 8
+PROPOSAL_BYTES_LIMIT = 120 * 1024 * 1024
+
+
+def prepare_proposal(project, machine, context, operations):
+    candidate = copy.deepcopy(machine)
+    apply_operations(candidate, context, operations)
+    candidate_project = dict(project)
+    candidate_project['machines'] = [candidate if item['id'] == machine['id'] else item for item in project['machines']]
+    validate_project(candidate_project)
+    if len(serialize(candidate_project)) > MAX_JSON:
+        raise ValueError('Проект с предложенными правками превышает 180 МБ; данные не изменены.')
+    changes = build_review(machine, candidate)
+    return candidate, changes
+
+
+def register_proposal(candidate, version, changes):
+    data = zlib.compress(json.dumps(candidate, ensure_ascii=False, separators=(',', ':')).encode('utf-8'), 3)
+    if len(data) > PROPOSAL_BYTES_LIMIT:
+        raise ValueError('Предложение слишком велико для безопасного просмотра. Используйте ручной редактор.')
+    now = time.monotonic()
+    with PROPOSAL_LOCK:
+        for identifier, pending in list(PROPOSALS.items()):
+            if pending['expires'] <= now:
+                del PROPOSALS[identifier]
+        while PROPOSALS and (len(PROPOSALS) >= PROPOSAL_COUNT_LIMIT or sum(len(item['data']) for item in PROPOSALS.values()) + len(data) > PROPOSAL_BYTES_LIMIT):
+            del PROPOSALS[next(iter(PROPOSALS))]
+        identifier = secrets.token_urlsafe(24)
+        PROPOSALS[identifier] = {'data': data, 'version': version, 'machine_id': candidate['id'],
+                                 'changed': len(changes), 'expires': now + PROPOSAL_TTL}
+    return {'id': identifier, 'machine': candidate['model'], 'changes': changes, 'expires_seconds': PROPOSAL_TTL}
+
+
+def take_proposal(identifier):
+    if not isinstance(identifier, str) or not re.fullmatch(r'[A-Za-z0-9_-]{20,64}', identifier):
+        raise HTTPException(410, 'Предложение не найдено или устарело. Отправьте запрос заново.')
+    with PROPOSAL_LOCK:
+        pending = PROPOSALS.pop(identifier, None)
+    if not pending or pending['expires'] <= time.monotonic():
+        raise HTTPException(410, 'Предложение не найдено или устарело. Отправьте запрос заново.')
+    return pending
 
 
 @asynccontextmanager
@@ -95,10 +141,10 @@ def job_data(identifier):
 
 
 def profile_options(body):
-    profile = body.get('profile', '3b')
+    profile = body.get('profile', 'mehfak')
     custom = body.get('custom', '')
     acceleration = body.get('acceleration', 'cpu')
-    if profile not in ('3b', '7b', 'custom') or acceleration not in ('cpu', 'vulkan') or not isinstance(custom, str):
+    if profile not in ('mehfak', '3b', '7b', 'custom') or acceleration not in ('cpu', 'vulkan') or not isinstance(custom, str):
         raise ValueError('Неизвестный профиль ИИ.')
     return profile, custom, acceleration
 
@@ -310,17 +356,53 @@ async def chat_request(request: Request):
     screen = body.get('screen') or {}
     selection = body.get('selection') or ''
     history = body.get('history') or []
-    if not isinstance(history, list):
-        raise ValueError('Неверная история диалога.')
+    if not isinstance(history, list) or not isinstance(selection, str) or len(selection) > 4000:
+        raise ValueError('Неверная история диалога или слишком длинное выделение.')
     answer, context = await asyncio.to_thread(chat, AI, machine, screen, selection, body.get('message'), history, *profile_options(body))
+    if STORE.get()[1] != version:
+        raise ConflictError('Каталог изменился во время ответа ИИ. Отправьте запрос заново.')
+    proposal = None
+    warning = ''
     if answer['operations']:
-        def change(current):
-            return apply_operations(machine_by_id(current, machine['id']), context, answer['operations'])
-        project, version, changed = STORE.mutate(version, change)
-    else:
-        project, version = STORE.get()
-        changed = 0
-    return {'reply': answer['reply'], 'project': project, 'version': version, 'changed': changed}
+        try:
+            candidate, changes = await asyncio.to_thread(prepare_proposal, project, machine, context, answer['operations'])
+            if STORE.get()[1] != version:
+                raise ConflictError('Каталог изменился во время подготовки правок. Отправьте запрос заново.')
+            if changes:
+                proposal = await asyncio.to_thread(register_proposal, candidate, version, changes)
+            else:
+                warning = 'ИИ не предложил фактических изменений. Данные не изменены.'
+        except ValueError as error:
+            warning = 'Предложенные ИИ правки отклонены: ' + str(error)
+    return {'reply': answer['reply'], 'project': project, 'version': version, 'changed': 0,
+            'proposal': proposal, 'warning': warning, 'unverified_quantities': answer.get('unverified_quantities', [])}
+
+
+@app.post('/api/chat/apply')
+async def apply_chat_proposal(request: Request):
+    body = await request.json()
+    pending = take_proposal(body.get('proposal_id'))
+    candidate = json.loads(zlib.decompress(pending['data']))
+
+    def change(current):
+        for index, item in enumerate(current['machines']):
+            if item['id'] == pending['machine_id']:
+                current['machines'][index] = candidate
+                return pending['changed']
+        raise ConflictError('Машина больше не найдена; правки не применены.')
+
+    project, version, changed = await asyncio.to_thread(STORE.mutate, pending['version'], change)
+    return {'project': project, 'version': version, 'changed': changed}
+
+
+@app.post('/api/chat/discard')
+async def discard_chat_proposal(request: Request):
+    body = await request.json()
+    identifier = body.get('proposal_id')
+    if isinstance(identifier, str):
+        with PROPOSAL_LOCK:
+            PROPOSALS.pop(identifier, None)
+    return {'discarded': True}
 
 
 @app.post('/api/build')

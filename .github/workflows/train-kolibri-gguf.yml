@@ -1,0 +1,131 @@
+name: Train Kolibri Qwen2.5 3B
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - arena/0d487d0e-calibre
+    paths:
+      - '.github/workflows/train-kolibri-gguf.yml'
+      - 'python_studio/training/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kolibri-qwen-training-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  train-and-examine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      HF_HOME: ${{ runner.temp }}/kolibri-huggingface
+      HF_HUB_DISABLE_XET: '1'
+      OMP_NUM_THREADS: '4'
+      MKL_NUM_THREADS: '4'
+      TOKENIZERS_PARALLELISM: 'false'
+      KOLIBRI_WORK: ${{ runner.temp }}/kolibri-model-work
+    steps:
+      - name: Check out current commit
+        uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check resources and enable 8 GB swap
+        run: |
+          set -eu
+          df -h
+          free -h
+          mkdir -p "$KOLIBRI_WORK"
+          sudo fallocate -l 8G /mnt/kolibri-training.swap
+          sudo chmod 600 /mnt/kolibri-training.swap
+          sudo mkswap /mnt/kolibri-training.swap
+          sudo swapon /mnt/kolibri-training.swap
+          free -h
+      - name: Install CPU training and evaluation dependencies
+        run: |
+          python -m pip install --no-cache-dir 'torch==2.6.0+cpu' --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+          python -m pip install --no-cache-dir -r python_studio/training/requirements-training.txt
+          python -c "import torch, transformers, peft; print('torch', torch.__version__, 'transformers', transformers.__version__, 'peft', peft.__version__, 'cuda', torch.cuda.is_available())"
+      - name: Verify and regenerate the source-grounded dataset
+        run: |
+          python python_studio/training/build_dataset.py --out "$RUNNER_TEMP/train.jsonl" --manifest "$RUNNER_TEMP/dataset-manifest.json"
+          cmp python_studio/training/train.jsonl "$RUNNER_TEMP/train.jsonl"
+          cmp python_studio/training/dataset-manifest.json "$RUNNER_TEMP/dataset-manifest.json"
+      - name: Build pinned llama.cpp
+        run: |
+          git clone --depth 1 --branch b7571 https://github.com/ggml-org/llama.cpp.git "$RUNNER_TEMP/llama.cpp"
+          test "$(git -C "$RUNNER_TEMP/llama.cpp" rev-parse HEAD)" = 2a85f720b8aa87488468024c0112542b7b742a0b
+          cmake -S "$RUNNER_TEMP/llama.cpp" -B "$RUNNER_TEMP/llama-build" -DGGML_NATIVE=ON -DLLAMA_CURL=OFF -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/llama-build" --target llama-quantize llama-server -j 4
+      - name: Download the original Qwen research licence
+        run: |
+          python -c "from huggingface_hub import hf_hub_download; import shutil,os; p=hf_hub_download('Qwen/Qwen2.5-3B-Instruct', 'LICENSE', revision='aa8e72537993ba99e69dfaafa59ed015b17504d1'); shutil.copyfile(p, os.environ['KOLIBRI_WORK'] + '/QWEN_LICENSE_SOURCE.txt')"
+      - name: Train real BF16 LoRA and merge the adapter
+        run: |
+          python -u python_studio/training/train_kolibri_gguf.py --dataset "$RUNNER_TEMP/train.jsonl" --output "$KOLIBRI_WORK" --threads 4 --max-length 448 --target-minutes 32
+          rm -rf "$HF_HOME/hub/models--Qwen--Qwen2.5-3B-Instruct"
+          df -h
+      - name: Convert to BF16 GGUF and quantize Q4 K M
+        run: |
+          python -u python_studio/training/train_kolibri_gguf.py --convert-only --output "$KOLIBRI_WORK" --llama-source "$RUNNER_TEMP/llama.cpp" --quantize "$RUNNER_TEMP/llama-build/bin/llama-quantize" --threads 4
+          rm -rf "$KOLIBRI_WORK/merged" "$KOLIBRI_WORK/adapter"
+          df -h
+      - name: Examine the actual quantized model
+        run: |
+          set -eu
+          "$RUNNER_TEMP/llama-build/bin/llama-server" --model "$KOLIBRI_WORK/kolibri-qwen2.5-mehfak.gguf" --alias kolibri-qwen2.5-mehfak.gguf --host 127.0.0.1 --port 18951 --ctx-size 8192 --threads 4 --parallel 1 --jinja -ngl 0 > "$KOLIBRI_WORK/llama-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for attempt in $(seq 1 180); do
+            if curl --silent --fail http://127.0.0.1:18951/health > /dev/null; then ready=1; break; fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then tail -100 "$KOLIBRI_WORK/llama-server.log"; exit 1; fi
+            sleep 2
+          done
+          if [ "$ready" != 1 ]; then tail -100 "$KOLIBRI_WORK/llama-server.log"; exit 1; fi
+          python -u python_studio/training/evaluate_finetuned.py --port 18951 --model-file "$KOLIBRI_WORK/kolibri-qwen2.5-mehfak.gguf" --expected-server-id kolibri-qwen2.5-mehfak.gguf --out "$KOLIBRI_WORK/AI_EVALUATION_QWEN25_3B_FINETUNED.json"
+      - name: Check model, training, size and examination gates
+        id: gate
+        continue-on-error: true
+        run: |
+          python python_studio/training/verify_release.py --output "$KOLIBRI_WORK" --dataset "$RUNNER_TEMP/train.jsonl" --manifest "$RUNNER_TEMP/dataset-manifest.json" --report "$KOLIBRI_WORK/AI_EVALUATION_QWEN25_3B_FINETUNED.json" --expected-server-id kolibri-qwen2.5-mehfak.gguf
+      - name: Upload actual diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kolibri-qwen-training-diagnostics
+          path: |
+            ${{ runner.temp }}/kolibri-model-work/training-metrics.json
+            ${{ runner.temp }}/kolibri-model-work/training-log.jsonl
+            ${{ runner.temp }}/kolibri-model-work/gguf-metrics.json
+            ${{ runner.temp }}/kolibri-model-work/AI_EVALUATION_QWEN25_3B_FINETUNED.json
+            ${{ runner.temp }}/kolibri-model-work/release-gate.json
+            ${{ runner.temp }}/kolibri-model-work/llama-server.log
+            ${{ runner.temp }}/dataset-manifest.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Prepare release files and mandatory Qwen notices
+        if: steps.gate.outcome == 'success'
+        run: |
+          python python_studio/training/prepare_release.py --output "$KOLIBRI_WORK" --license "$KOLIBRI_WORK/QWEN_LICENSE_SOURCE.txt" --manifest "$RUNNER_TEMP/dataset-manifest.json" --report "$KOLIBRI_WORK/AI_EVALUATION_QWEN25_3B_FINETUNED.json"
+      - name: Publish a new release after all gates pass
+        if: steps.gate.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          tag=kolibri-ai-model
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo 'The release already exists; refusing to overwrite it.'
+            exit 1
+          fi
+          cd "$KOLIBRI_WORK"
+          gh release create "$tag" kolibri-qwen2.5-mehfak.gguf AI_EVALUATION_QWEN25_3B_FINETUNED.json SHA256SUMS.txt training-metrics.json dataset-manifest.json QWEN_LICENSE.txt NOTICE.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --title 'Kolibri Qwen2.5-3B Мехфак — исследовательская модель' --notes 'Improved using Qwen. Изменённая модель: LoRA-дообучение по РЭ ГРН-471 и квантование Q4_K_M. Qwen Research License разрешает стандартное использование только для некоммерческих исследований и оценки; см. QWEN_LICENSE.txt и NOTICE.txt. Автоматический экзамен не гарантирует безопасность: сверяйте ответы с РЭ.'
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
+      - name: Fail the job when publication gates do not pass
+        if: steps.gate.outcome == 'failure'
+        run: exit 1

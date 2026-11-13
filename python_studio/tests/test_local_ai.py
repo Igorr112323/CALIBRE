@@ -1,3 +1,5 @@
+import copy
+import hashlib
 import io
 import json
 import os
@@ -151,6 +153,88 @@ class AITests(unittest.TestCase):
         self.ai.port = int(os.environ['KOLIBRI_TEST_LLAMA_PORT'])
         result = self.ai.complete([{'role': 'user', 'content': 'Return JSON.'}], SCHEMA, 'custom', 'test.gguf', max_tokens=100)
         self.assertEqual(result, {'status': 'ok'})
+
+
+class ReleaseProfileTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.path_patch = mock.patch('local_ai.MODEL_DIR', self.root)
+        self.path_patch.start()
+        self.addCleanup(self.path_patch.stop)
+        self.ai = LocalAI()
+        self.spec = copy.deepcopy(PROFILES['mehfak'])
+        self.name = self.spec['files'][0]['name']
+        self.content = b'GGUF-real-test-content'
+        self.digest = hashlib.sha256(self.content).hexdigest()
+
+    def test_profile_is_first_and_never_substitutes_an_ollama_model(self):
+        self.assertEqual(next(iter(PROFILES)), 'mehfak')
+        with mock.patch.object(self.ai, 'ollama_available', side_effect=AssertionError('Ollama must not be used')), \
+             mock.patch.object(self.ai, 'ensure_model', return_value=self.root / self.name), \
+             mock.patch.object(self.ai, 'ensure_engine', return_value=self.root / 'llama-server'), \
+             mock.patch.object(self.ai, '_launch'):
+            self.ai._start('mehfak', '', 'cpu')
+        self.assertEqual(self.ai.active_profile, 'mehfak')
+        self.assertEqual(self.ai.model_name, self.name)
+        self.assertEqual(self.ai.status()['backend'], 'llama')
+
+    def test_absent_release_is_explained_without_fallback(self):
+        response = httpx.Response(404, request=httpx.Request('GET', self.spec['checksums']))
+        with mock.patch('local_ai.httpx.get', return_value=response):
+            with self.assertRaisesRegex(RuntimeError, 'ещё не опубликована'):
+                self.ai.ensure_model('mehfak')
+        self.assertFalse((self.root / self.name).exists())
+
+    def test_download_is_verified_then_reused_offline_and_corruption_is_rejected(self):
+        def download(urls, destination, label, **kwargs):
+            self.assertEqual(urls, [self.spec['url']])
+            self.assertEqual(kwargs['expected_sha'], self.digest)
+            self.assertEqual(kwargs['max_bytes_exclusive'], self.spec['max_bytes_exclusive'])
+            destination.write_bytes(self.content)
+        with mock.patch.object(self.ai, '_release_checksum', return_value=self.digest), \
+             mock.patch.object(self.ai, '_download', side_effect=download), \
+             mock.patch('local_ai.shutil.disk_usage') as disk:
+            disk.return_value.free = self.spec['max_bytes_exclusive'] + 500 * 1024 * 1024
+            self.assertEqual(self.ai.ensure_model('mehfak').read_bytes(), self.content)
+        sidecar = self.root / (self.name + '.sha256')
+        self.assertEqual(sidecar.read_text(), self.digest + '  ' + self.name + '\n')
+        with mock.patch.object(self.ai, '_release_checksum', side_effect=AssertionError('Offline cache should be used')):
+            self.assertEqual(self.ai.ensure_model('mehfak'), self.root / self.name)
+            (self.root / self.name).write_bytes(b'GGUF-corrupted')
+            with self.assertRaisesRegex(RuntimeError, 'SHA-256'):
+                self.ai.ensure_model('mehfak')
+
+    def test_limit_is_exclusive_even_for_cached_model(self):
+        (self.root / self.name).write_bytes(self.content)
+        (self.root / (self.name + '.sha256')).write_text(self.digest + '  ' + self.name + '\n')
+        self.spec['max_bytes_exclusive'] = len(self.content)
+        with self.assertRaisesRegex(RuntimeError, 'Размер'):
+            self.ai._ensure_release_model(self.spec)
+
+    def test_malformed_or_ambiguous_checksums_and_symlinks_are_rejected(self):
+        with self.assertRaisesRegex(RuntimeError, 'отсутствует'):
+            self.ai._parse_release_checksum(self.digest + '  unrelated.gguf\n', self.name)
+        with self.assertRaisesRegex(RuntimeError, 'неоднозначна'):
+            self.ai._parse_release_checksum((self.digest + '  ' + self.name + '\n') * 2, self.name)
+        target = self.root / 'target'
+        target.write_bytes(self.content)
+        (self.root / self.name).symlink_to(target)
+        with self.assertRaisesRegex(RuntimeError, 'Символические ссылки'):
+            self.ai._ensure_release_model(self.spec)
+
+    def test_streaming_download_rejects_file_at_size_limit(self):
+        real_client = httpx.Client
+        transport = httpx.MockTransport(lambda request: httpx.Response(200, content=self.content))
+        def client(**kwargs):
+            return real_client(transport=transport, **kwargs)
+        with mock.patch('local_ai.httpx.Client', side_effect=client):
+            with self.assertRaisesRegex(RuntimeError, 'превышает допустимый размер'):
+                self.ai._download(['https://example.test/model'], self.root / self.name, 'test', minimum=4,
+                                  expected_sha=self.digest, check_gguf=True, max_bytes_exclusive=len(self.content))
+        self.assertFalse((self.root / self.name).exists())
+        self.assertFalse((self.root / (self.name + '.part')).exists())
 
 
 if __name__ == '__main__':
