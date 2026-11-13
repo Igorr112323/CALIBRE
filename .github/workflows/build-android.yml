@@ -48,7 +48,7 @@ jobs:
           path: dist/Kolibri-Mehfak.apk
           if-no-files-found: error
           retention-days: 30
-      - name: Publish APK prerelease
+      - name: Publish latest APK release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -56,6 +56,6 @@ jobs:
           gh release create "$tag" dist/Kolibri-Mehfak.apk \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --prerelease \
+            --latest \
             --title "Kolibri Мехфак — debug APK (${GITHUB_RUN_NUMBER})" \
             --notes "Отладочная офлайн-сборка Android. Перед эксплуатацией техники сверьте данные с руководством производителя."

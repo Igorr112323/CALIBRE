@@ -10,6 +10,8 @@ export default defineConfig({
 
   base: './',
   publicDir: false,
+  server: { host: '0.0.0.0', allowedHosts: true },
+  preview: { host: '0.0.0.0', allowedHosts: true },
   resolve: {
     alias: {
       '@capacitor/core': path.resolve(here, 'node_modules/@capacitor/core/dist/index.js'),

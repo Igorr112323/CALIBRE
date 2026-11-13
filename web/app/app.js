@@ -1,3 +1,5 @@
+import { Capacitor } from '@capacitor/core';
+import './stand.css';
 import catalog from './catalog.json';
 
 import machinePhoto from './kolibri-grn471.jpg';
@@ -15,6 +17,8 @@ const ui = {
 const $ = (selector, root = document) => root.querySelector(selector);
 let appReadyForIntro = false;
 let introAnimationFinished = false;
+let introTimer;
+let introPlayToken = 0;
 function dismissIntroWhenReady() {
   if (!appReadyForIntro || !introAnimationFinished) return;
   $('#launchSplash')?.classList.add('dismiss');
@@ -22,14 +26,16 @@ function dismissIntroWhenReady() {
 function finishIntroAnimation() {
   if (introAnimationFinished) return;
   introAnimationFinished = true;
+  introPlayToken += 1;
+  window.clearTimeout(introTimer);
   if (launchAnimation && !launchAnimation.ended) launchAnimation.pause();
   dismissIntroWhenReady();
 }
 const launchAnimation = $('#launchAnimation');
 if (launchAnimation) {
-  launchAnimation.addEventListener('ended', finishIntroAnimation, { once: true });
-  launchAnimation.addEventListener('error', finishIntroAnimation, { once: true });
-  window.setTimeout(finishIntroAnimation, 5500);
+  launchAnimation.addEventListener('ended', finishIntroAnimation);
+  launchAnimation.addEventListener('error', finishIntroAnimation);
+  introTimer = window.setTimeout(finishIntroAnimation, 5500);
 } else {
   introAnimationFinished = true;
 }
@@ -260,6 +266,61 @@ function handleAction(action, element) {
   }
 }
 
+function replayIntro() {
+  if (!launchAnimation) return;
+  window.clearTimeout(introTimer);
+  const token = ++introPlayToken;
+  introAnimationFinished = false;
+  $('#launchSplash').classList.remove('dismiss');
+  launchAnimation.currentTime = 0;
+  const playback = launchAnimation.play();
+  playback?.catch(() => {
+    if (token === introPlayToken) finishIntroAnimation();
+  });
+  introTimer = window.setTimeout(() => {
+    if (token === introPlayToken) finishIntroAnimation();
+  }, 5500);
+}
+
+function setupPreviewStand() {
+  if (Capacitor.isNativePlatform()) {
+    document.body.classList.add('native-mode');
+    return;
+  }
+  document.body.classList.add('browser-mode');
+  const app = $('#app');
+  const stand = document.createElement('div');
+  stand.className = 'preview-stand';
+  stand.innerHTML = `<aside class="preview-panel" aria-label="Управление стендом">
+    <div class="preview-brand"><span class="preview-brand-icon" aria-hidden="true">K</span><span>KOLIBRI <small>МЕХФАК</small></span></div>
+    <div class="preview-kicker"><span></span> ВЕБ-СТЕНД · OFFLINE FIRST</div>
+    <h2>Kolibri — стенд<br>предпросмотра APK</h2>
+    <p class="preview-description">Изучайте и отлаживайте справочник прямо в браузере. Интерфейс в макете работает так же, как на телефоне.</p>
+    <a class="preview-download" href="https://github.com/Igorr112323/CALIBRE/releases/latest/download/Kolibri-Mehfak.apk"><span>Скачать актуальный APK</span><span aria-hidden="true">↓</span></a>
+    <a class="preview-releases" href="https://github.com/Igorr112323/CALIBRE/releases" target="_blank" rel="noopener noreferrer">Все сборки на GitHub <span aria-hidden="true">↗</span></a>
+    <div class="preview-divider"></div>
+    <div class="preview-controls-title">БЫСТРАЯ ОТЛАДКА <span>01 — 03</span></div>
+    <div class="preview-controls"><button type="button" data-preview="home"><span>На главный экран</span><span aria-hidden="true">↗</span></button><button type="button" data-preview="replay"><span>Повторить заставку</span><span aria-hidden="true">↻</span></button><button type="button" data-preview="skip"><span>Пропустить заставку</span><span aria-hidden="true">→</span></button></div>
+    <div class="preview-note"><span class="preview-note-dot"></span><span>Живой макет · Данные встроены в приложение</span></div>
+  </aside><div class="preview-device-area"><div class="preview-device-label"><span>ИНТЕРАКТИВНЫЙ МАКЕТ</span><span>390 × 844</span></div><div class="preview-device"><div class="preview-device-top"><span></span></div><div class="preview-device-screen"></div></div><p class="preview-device-caption">ПРОСМОТР ПРИЛОЖЕНИЯ <span>·</span> ANDROID</p></div>`;
+  document.body.insertBefore(stand, app);
+  $('.preview-device-screen', stand).append(app);
+  if (launchAnimation && !introAnimationFinished && launchAnimation.paused) {
+    const playback = launchAnimation.play();
+    playback?.catch(() => {});
+  }
+  stand.addEventListener('click', event => {
+    const action = event.target.closest('[data-preview]')?.dataset.preview;
+    if (action === 'home') {
+      if ($('#modal').classList.contains('show')) closeModal();
+      Object.assign(ui, { machineId: null, nodeId: null, problemId: null, tab: 'adjustments' });
+      setScreen('home');
+      finishIntroAnimation();
+    } else if (action === 'replay') replayIntro();
+    else if (action === 'skip') finishIntroAnimation();
+  });
+}
+
 $('#app').addEventListener('click', event => {
   if (event.target.id === 'modal') { closeModal(); return; }
   const actionElement = event.target.closest('[data-action]');
@@ -276,6 +337,7 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && $('#modal').classList.contains('show')) closeModal();
 });
 
+setupPreviewStand();
 render();
 appReadyForIntro = true;
 dismissIntroWhenReady();

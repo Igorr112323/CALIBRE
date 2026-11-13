@@ -18,3 +18,7 @@ cd android
 Результат: `android/app/build/outputs/apk/debug/app-debug.apk`. В Windows можно запустить корневой `build_apk.bat`, который создаёт `dist/Kolibri-Mehfak.apk`. Для установки debug APK может потребоваться разрешить установку из выбранного источника.
 
 Gradle Wrapper включает код Gradle, Copyright 2015–2021 the original authors, распространяемый по лицензии [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+
+## Веб-стенд
+
+Из `mobile/` выполните `npm ci`, затем `npx vite --config vite.config.mjs`. В браузере откроется интерактивный макет телефона с кнопками отладки и ссылкой на последний APK. На Android внешняя панель не отображается.
