@@ -45,3 +45,5 @@
 .figure-modal-canvas{overflow:auto;max-height:52vh;background:#fff;border:1px solid #e3e8df;border-radius:8px}
 .figure-modal-canvas svg{display:block;width:900px;max-width:none;height:auto}
 .parts-group-toggle:focus-visible,.part-row:focus-visible,.part-card button:focus-visible,.figure-zoom:focus-visible,.parts-filter:focus-within{outline:2px solid #326c38;outline-offset:-2px}
+
+.parts-figure img{display:block;width:100%;height:auto;border-radius:8px;cursor:zoom-in}.wizard-image img[data-action],.guide-figure img[data-action],.part-detail-image img[data-action]{cursor:zoom-in}

@@ -6,9 +6,12 @@ import { adjustments } from './wizard.js';
 import { partGroups, partAt, partTitle, partSearchText, normalizeParts, renderParts, renderPartCard, renderFigureZoom } from './parts.js';
 import './parts.css';
 import { guideFor, guideSearchText } from './guides.js';
+import { renderGeneratedParts, renderGeneratedPart, generatedPartAt } from './generated-data.js';
 import './guides.css';
 
 import machinePhoto from './kolibri-grn471.jpg';
+
+const mediaAssets = import.meta.glob('./media/*.{png,jpg,jpeg,webp,svg}', { eager: true, query: '?inline', import: 'default' });
 
 const ui = {
   screen: 'home',
@@ -57,6 +60,13 @@ function machineList() {
 function findMachine(id = ui.machineId) {
   return machineList().find(machine => String(machine.id) === String(id)) ?? null;
 }
+function mediaFor(key) {
+  const filename = findMachine()?.media?.[key];
+  return typeof filename === 'string' ? mediaAssets[`./media/${filename}`] || null : null;
+}
+function currentAdjustments() { return findMachine()?.adjustments || (findMachine()?.generated ? [] : adjustments); }
+function currentPartAt(group, position) { return findMachine()?.generated ? generatedPartAt(findMachine(), group, position) : partAt(group, position); }
+function partsView() { return findMachine()?.generated ? renderGeneratedParts(findMachine(), ui.partsFilter, ui.partsGroup, mediaFor) : renderParts(ui.partsFilter, ui.partsGroup, mediaFor, findMachine()?.partOverrides || {}); }
 function titleForScreen() {
   const machine = findMachine();
   if (ui.screen === 'machine' || ui.screen === 'wizard' || ui.screen === 'part') return [machine?.model || 'Машина', machine?.machine_type || 'Карточка машины'];
@@ -81,12 +91,13 @@ function render() {
     ? '<span class="logo">Kolibri</span><small>Справочник сельхозтехники</small>'
     : `${escapeHtml(title)}<small>${escapeHtml(subtitle)}</small>`;
   $('#back').classList.toggle('show', ui.screen === 'machine' || ui.screen === 'wizard' || ui.screen === 'part');
+  Object.assign($('#app').dataset,{machineId:ui.machineId || '',tab:ui.tab || '',screen:ui.screen,adjustmentId:ui.adjustmentId || '',step:String(ui.step),group:ui.partsGroup || '',position:String(ui.partPosition)});
   $('#app').classList.toggle('machine-screen', ui.screen === 'machine' || ui.screen === 'wizard' || ui.screen === 'part');
   const main = $('#main');
   if (ui.screen === 'home') main.innerHTML = renderHome();
   else if (ui.screen === 'machine') main.innerHTML = renderMachine();
   else if (ui.screen === 'wizard') main.innerHTML = renderWizard();
-  else if (ui.screen === 'part') main.innerHTML = renderPartCard(ui.partsGroup, ui.partPosition);
+  else if (ui.screen === 'part') main.innerHTML = findMachine()?.generated ? renderGeneratedPart(findMachine(), ui.partsGroup, ui.partPosition, mediaFor) : renderPartCard(ui.partsGroup, ui.partPosition, mediaFor(`parts/${ui.partsGroup}/${ui.partPosition}`), findMachine()?.partOverrides || {});
   main.scrollTop = 0;
 }
 
@@ -95,15 +106,16 @@ function searchIndex() {
   for (const machine of machineList()) {
     for (const section of machine.sections) {
       for (const item of section.items) {
-        const adjustment = section.id === 'adjustments' ? adjustments.find(entry => entry.id === item.id) : null;
-        const guide = guideFor(item.id);
+        const adjustment = section.id === 'adjustments' ? (machine.adjustments || (machine.generated ? [] : adjustments)).find(entry => entry.id === item.id) : null;
+        const guide = machine.generated ? item : { ...(guideFor(item.id) || item), ...(machine.guideOverrides?.[item.id] || {}) };
         const text = [item.badge, item.tool, item.text, ...(item.steps || []), ...(item.rows || []).flatMap(row => [row.label, row.value]), ...(adjustment?.steps || []).flatMap(step => [step.title, step.text]), guideSearchText(guide)].filter(Boolean).join(' ');
         items.push({ sectionId: section.id, itemId: item.id, machineId: machine.id, type: section.title, title: adjustment?.title || guide?.title || item.title, text, snippet: adjustment?.subtitle || guide?.subtitle || guide?.reason || item.badge || item.text || item.tool || '' });
       }
     }
-    for (const group of partGroups) {
-      for (const item of group.items) {
-        items.push({ sectionId: 'parts', itemId: String(item.position), groupId: group.id, machineId: machine.id, type: `Детали · ${group.title}`, title: partTitle(group, item), text: partSearchText(group, item), snippet: `Поз. ${item.position} · ${item.designation || item.name}` });
+    for (const group of (machine.generated ? machine.partGroups || [] : partGroups)) {
+      for (const baseItem of group.items) {
+        const item={...baseItem,...machine.partOverrides?.[group.id]?.items?.[baseItem.position]};
+        items.push({ sectionId: 'parts', itemId: String(item.position), groupId: group.id, machineId: machine.id, type: `Детали · ${group.title}`, title: machine.generated ? item.name : partTitle(group, item), text: machine.generated ? [item.name,item.designation,item.note].join(' ') : partSearchText(group, item), snippet: `Поз. ${item.position} · ${item.designation || item.name}` });
       }
     }
   }
@@ -154,14 +166,20 @@ function renderHome() {
   return `${machineSearchField()}<h2 class="catalog-heading">Техника</h2><div class="machine-list">${renderMachineList()}</div>`;
 }
 
-function renderItem(item) {
-  const guide = guideFor(item.id);
+function renderItem(item, sectionId) {
+  const guide = findMachine()?.generated ? item : { ...(guideFor(item.id) || item), ...(findMachine()?.guideOverrides?.[item.id] || {}) };
   if (!guide) return '';
   const number = item.number ? `<span class="machine-item-number">${escapeHtml(item.number)}</span>` : '';
   const subtitle = guide.subtitle ? `<small>${escapeHtml(guide.subtitle)}</small>` : '';
-  const images = (guide.images || []).map((image, i) => `<figure class="guide-figure">${image}${guide.imageCaptions?.[i] ? `<figcaption>${escapeHtml(guide.imageCaptions[i])}</figcaption>` : ''}</figure>`).join('');
+  const custom = mediaFor(`${sectionId}/${item.id}`);
+  const sources = guide.images?.length ? guide.images : custom ? [''] : [];
+  const images = sources.map((image, i) => {
+    const replacement = i === 0 ? custom : null;
+    const visual = replacement ? `<img src="${escapeHtml(replacement)}" alt="${escapeHtml(guide.title)}" data-action="zoom-image">` : image;
+    return `<figure class="guide-figure">${visual}${guide.imageCaptions?.[i] ? `<figcaption>${escapeHtml(guide.imageCaptions[i])}</figcaption>` : ''}</figure>`;
+  }).join('');
   const reason = guide.reason ? `<p class="guide-reason"><strong>Возможная причина:</strong> ${escapeHtml(guide.reason)}</p>` : '';
-  const text = guide.text ? `<p>${item.number ? '<strong>Простыми словами: </strong>' : ''}${escapeHtml(guide.text)}</p>` : '';
+  const text = guide.text ? `${guide.summary ? `<p><strong>Кратко, ИИ: </strong>${escapeHtml(guide.summary)}</p>` : ''}<p>${item.number && !findMachine()?.generated ? '<strong>Простыми словами: </strong>' : ''}${escapeHtml(guide.text)}</p>` : '';
   const steps = guide.steps ? `<ol>${guide.steps.map(step => `<li>${escapeHtml(step)}</li>`).join('')}</ol>` : '';
   const rows = guide.rows ? `<div class="machine-specs">${guide.rows.map(([label,value]) => `<div class="settings-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('')}</div>` : '';
   const links = guide.links ? `<div class="guide-links">${guide.links.map(link => `<button type="button" data-action="guide-link" data-kind="${escapeHtml(link.kind)}" data-id="${escapeHtml(link.id)}" data-position="${escapeHtml(link.position || '')}" data-section="${escapeHtml(link.section || '')}">${escapeHtml(link.label)}</button>`).join('')}</div>` : '';
@@ -180,30 +198,34 @@ const tabs = [
 function renderMachine() {
   const machine = findMachine();
   if (!machine) return '<div class="catalog-empty">Машина не найдена.</div>';
-  const photo = `<button class="scheme machine-photo" data-action="open-photo" aria-label="Открыть фотографию крупно"><img src="${escapeHtml(machinePhoto)}" alt="Роторные грабли ГРН-471 Kolibri"></button>`;
+  const photoSource=mediaFor('photo') || (machine.generated ? null : machinePhoto);
+  const photo = photoSource ? `<button class="scheme machine-photo" data-action="open-photo" aria-label="Открыть фотографию крупно"><img src="${escapeHtml(photoSource)}" alt="${escapeHtml(machine.model)}"></button>` : '<div class="scheme machine-photo empty">Фото машины не загружено</div>';
   const tabbar = `<div class="tabs" role="tablist" aria-label="Разделы карточки">${tabs.map(([id, title]) => `<button type="button" role="tab" id="tab-${id}" data-action="select-tab" data-tab="${id}" aria-controls="machine-panel" aria-selected="${ui.tab === id}" class="${ui.tab === id ? 'on' : ''}">${title}</button>`).join('')}</div>`;
   let content;
   if (ui.tab === 'adjustments') {
-    content = `<div class="adjustment-list">${adjustments.map((item, index) => `<button type="button" class="adjustment-choice" data-action="open-adjustment" data-id="${item.id}"><span class="choice-number">${index + 1}</span><span class="choice-copy"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.subtitle)}</small></span><span class="choice-arrow" aria-hidden="true">›</span></button>`).join('')}</div>`;
+    content = `<div class="adjustment-list">${currentAdjustments().map((item, index) => `<button type="button" class="adjustment-choice" data-action="open-adjustment" data-id="${item.id}"><span class="choice-number">${index + 1}</span><span class="choice-copy"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.subtitle)}</small></span><span class="choice-arrow" aria-hidden="true">›</span></button>`).join('')}</div>`;
   } else if (ui.tab === 'parts') {
-    content = renderParts(ui.partsFilter, ui.partsGroup);
+    content = partsView();
   } else {
     const sectionId = ui.tab === 'problems' ? 'faults' : ui.tab;
     const section = machine.sections.find(entry => entry.id === sectionId);
     const items = sectionId === 'faults' && section ? [...section.items].sort((a, b) => (a.id === 'safety' ? -1 : b.id === 'safety' ? 1 : 0)) : section?.items;
-    content = items ? `<div class="machine-items">${items.map(renderItem).join('')}</div>` : '';
+    content = items ? `<div class="machine-items">${items.map(item => renderItem(item, sectionId)).join('')}</div>` : '';
   }
-  return `${photo}${tabbar}<div class="tabs-hint" aria-hidden="true">Листайте вкладки →</div><section id="machine-panel" class="machine-tab-panel" role="tabpanel" aria-labelledby="tab-${ui.tab}">${content}</section>`;
+  return `${photo}${tabbar}<section id="machine-panel" class="machine-tab-panel" role="tabpanel" aria-labelledby="tab-${ui.tab}">${content}</section>`;
 }
 
 function renderWizard() {
-  const index = adjustments.findIndex(item => item.id === ui.adjustmentId);
-  const item = adjustments[index];
+  const list = currentAdjustments();
+  const index = list.findIndex(item => item.id === ui.adjustmentId);
+  const item = list[index];
   if (!item) return '<div class="catalog-empty">Регулировка не найдена.</div>';
   const step = item.steps[ui.step];
+  const image = mediaFor(`adjustments/${item.id}/${ui.step}`);
+  const visual = image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(step.title)}" data-action="zoom-image">` : (step.image || '<div class="empty">Схема не загружена</div>');
   const last = ui.step === item.steps.length - 1;
-  const next = adjustments[index + 1];
-  return `<div class="wizard"><button type="button" class="wizard-list-link" data-action="wizard-list">‹ Все регулировки</button><div class="wizard-kicker">РЕГУЛИРОВКА ${index + 1} ИЗ ${adjustments.length}</div><h2>${escapeHtml(item.title)}</h2><div class="wizard-progress"><span>Шаг ${ui.step + 1} из ${item.steps.length}</span><span>${item.steps.map((_, i) => `<i class="${i <= ui.step ? 'done' : ''}"></i>`).join('')}</span></div><div class="wizard-image">${step.image}</div><div class="diagram-legend"><span>Действие</span><span>Важно</span><span>Нельзя</span></div><h3>${escapeHtml(step.title)}</h3><p class="wizard-text">${escapeHtml(step.text)}</p><p class="wizard-note">Схема условная. Перед работой сверьтесь с руководством производителя.</p><div class="wizard-controls"><button type="button" class="wizard-back" data-action="wizard-back">← Назад</button>${last ? `<button type="button" class="wizard-next" data-action="${next ? 'wizard-next-adjustment' : 'wizard-finish'}">${next ? `Следующая регулировка: ${escapeHtml(next.title)} →` : 'Завершить регулировки ✓'}</button>` : '<button type="button" class="wizard-next" data-action="wizard-next-step">Дальше →</button>'}</div></div>`;
+  const next = list[index + 1];
+  return `<div class="wizard"><button type="button" class="wizard-list-link" data-action="wizard-list">‹ Все регулировки</button><div class="wizard-kicker">РЕГУЛИРОВКА ${index + 1} ИЗ ${list.length}</div><h2>${escapeHtml(item.title)}</h2><div class="wizard-progress"><span>Шаг ${ui.step + 1} из ${item.steps.length}</span><span>${item.steps.map((_, i) => `<i class="${i <= ui.step ? 'done' : ''}"></i>`).join('')}</span></div><div class="wizard-image">${visual}</div><div class="diagram-legend"><span>Действие</span><span>Важно</span><span>Нельзя</span></div><h3>${escapeHtml(step.title)}</h3>${step.summary ? `<p class="wizard-text"><strong>Пояснение ИИ: </strong>${escapeHtml(step.summary)}</p>` : ''}<p class="wizard-text">${escapeHtml(step.text)}</p><p class="wizard-note">Схема условная. Перед работой сверьтесь с руководством производителя.</p><div class="wizard-controls"><button type="button" class="wizard-back" data-action="wizard-back">← Назад</button>${last ? `<button type="button" class="wizard-next" data-action="${next ? 'wizard-next-adjustment' : 'wizard-finish'}">${next ? `Следующая регулировка: ${escapeHtml(next.title)} →` : 'Завершить регулировки ✓'}</button>` : '<button type="button" class="wizard-next" data-action="wizard-next-step">Дальше →</button>'}</div></div>`;
 }
 
 function setAccordionOpen(root, open) {
@@ -222,7 +244,7 @@ function toggleItem(item, shouldOpen = !item.classList.contains('is-open')) {
 }
 function openSearchTarget(sectionId, itemId) {
   if (sectionId === 'adjustments') {
-    const item = adjustments.find(entry => entry.id === itemId);
+    const item = currentAdjustments().find(entry => entry.id === itemId);
     if (!item) return;
     ui.adjustmentId = item.id;
     ui.step = 0;
@@ -246,13 +268,14 @@ function openSearchTarget(sectionId, itemId) {
   window.setTimeout(() => item.classList.remove('search-highlight'), 2600);
 }
 function refreshParts(keepFocus = false) {
+  $('#app').dataset.group = ui.partsGroup || '';
   const current = $('.parts-view');
   if (!current) return;
   const main = $('#main');
   const top = main.scrollTop;
   const cursor = keepFocus ? $('#partsFilter').selectionStart : null;
   const holder = document.createElement('div');
-  holder.innerHTML = renderParts(ui.partsFilter, ui.partsGroup);
+  holder.innerHTML = partsView();
   current.replaceWith(holder.firstElementChild);
   main.scrollTop = top;
   if (keepFocus) {
@@ -281,7 +304,7 @@ function closeModal() {
 }
 function openPhoto() {
   const modal = $('#modal');
-  $('#sheet').innerHTML = `<h3>ГРН-471 Kolibri</h3><img src="${escapeHtml(machinePhoto)}" alt="Роторные грабли ГРН-471 Kolibri"><button class="btn ghost" data-action="close-modal">Закрыть</button>`;
+  $('#sheet').innerHTML = `<h3>${escapeHtml(findMachine()?.model || 'Машина')}</h3><img src="${escapeHtml(mediaFor('photo') || machinePhoto)}" alt="${escapeHtml(findMachine()?.model || 'Машина')}"><button class="btn ghost" data-action="close-modal">Закрыть</button>`;
   modal.classList.add('show');
   modal.setAttribute('aria-hidden', 'false');
   $('[data-action="close-modal"]').focus();
@@ -294,13 +317,14 @@ function handleAction(action, element) {
   } else if (action === 'home') setScreen('home');
   else if (action === 'open-photo') openPhoto();
   else if (action === 'close-modal') closeModal();
+  else if (action === 'zoom-image') { const modal=$('#modal'); $('#sheet').innerHTML=`<img src="${escapeHtml(element.currentSrc || element.src)}" alt="${escapeHtml(element.alt || 'Схема')}"><button class="btn ghost" data-action="close-modal">Закрыть</button>`;modal.classList.add('show');modal.setAttribute('aria-hidden','false'); }
   else if (action === 'open-machine') { ui.tab = 'adjustments'; go('machine', { machineId: element.dataset.id }); }
-  else if (action === 'select-tab') { ui.tab = element.dataset.tab; ui.partsFilter = ''; ui.partsGroup = null; render(); $('#tab-' + ui.tab)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+  else if (action === 'select-tab') { ui.tab = element.dataset.tab; ui.partsFilter = ''; ui.partsGroup = null; render(); }
   else if (action === 'toggle-parts-group') { ui.partsGroup = ui.partsGroup === element.dataset.group ? null : element.dataset.group; refreshParts(); }
   else if (action === 'open-part') {
     const groupId = element.dataset.group;
     const position = Number(element.dataset.position);
-    if (!partAt(groupId, position)) return;
+    if (!currentPartAt(groupId, position)) return;
     if ($('#modal').classList.contains('show')) closeModal();
     ui.partsGroup = groupId; ui.partPosition = position; ui.partsFilter = ''; setScreen('part');
   } else if (action === 'zoom-figure') {
@@ -310,8 +334,10 @@ function handleAction(action, element) {
     $('[data-action=close-modal]')?.focus();
   } else if (action === 'back-parts') returnToPartList();
   else if (action === 'part-prev' || action === 'part-next') {
-    const position = ui.partPosition + (action === 'part-next' ? 1 : -1);
-    if (partAt(ui.partsGroup, position)) { ui.partPosition = position; render(); }
+    const group=findMachine()?.generated ? findMachine().partGroups.find(entry=>entry.id===ui.partsGroup) : null;
+    const index=group?.items.findIndex(item=>item.position===ui.partPosition);
+    const position = group ? group.items[index + (action === 'part-next' ? 1 : -1)]?.position : ui.partPosition + (action === 'part-next' ? 1 : -1);
+    if (position !== undefined && currentPartAt(ui.partsGroup, position)) { ui.partPosition = position; render(); }
   }
   else if (action === 'open-adjustment') { ui.adjustmentId = element.dataset.id; ui.step = 0; setScreen('wizard'); }
   else if (action === 'wizard-list' || action === 'wizard-finish') { ui.tab = 'adjustments'; setScreen('machine'); }
@@ -320,8 +346,9 @@ function handleAction(action, element) {
     else { ui.tab = 'adjustments'; setScreen('machine'); }
   } else if (action === 'wizard-next-step') { ui.step += 1; render(); }
   else if (action === 'wizard-next-adjustment') {
-    const index = adjustments.findIndex(item => item.id === ui.adjustmentId);
-    if (adjustments[index + 1]) { ui.adjustmentId = adjustments[index + 1].id; ui.step = 0; render(); }
+    const list = currentAdjustments();
+    const index = list.findIndex(item => item.id === ui.adjustmentId);
+    if (list[index + 1]) { ui.adjustmentId = list[index + 1].id; ui.step = 0; render(); }
   } else if (action === 'guide-link') {
     const { kind, id, position, section } = element.dataset;
     if (kind === 'adjustment' && adjustments.some(item => item.id === id)) { ui.adjustmentId = id; ui.step = 0; setScreen('wizard'); }
@@ -335,8 +362,8 @@ function handleAction(action, element) {
   } else if (action === 'toggle-item') toggleItem(element.closest('.machine-item'));
   else if (action === 'open-search-result') {
     const { machineId, sectionId, itemId, groupId } = element.dataset;
-    if (sectionId === 'parts' && partAt(groupId, itemId)) {
-      ui.machineId = machineId; ui.partsGroup = groupId; ui.partPosition = Number(itemId); ui.partsFilter = ''; ui.tab = 'parts'; setScreen('part');
+    if (sectionId === 'parts') {
+      ui.machineId = machineId; if (!currentPartAt(groupId, itemId)) return; ui.partsGroup = groupId; ui.partPosition = Number(itemId); ui.partsFilter = ''; ui.tab = 'parts'; setScreen('part');
     } else { go('machine', { machineId }); openSearchTarget(sectionId, itemId); }
   }
 }
@@ -424,7 +451,6 @@ document.addEventListener('keydown', event => {
   render();
   const selected = $('#tab-' + ui.tab);
   selected.focus({ preventScroll: true });
-  selected.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 });
 
 setupPreviewStand();

@@ -6,11 +6,11 @@
 .machine-screen main{padding:8px 14px 18px}
 .machine-screen .machine-photo{height:122px;margin:0;padding:5px}
 .machine-screen .machine-photo img{width:100%;height:100%;max-height:none;object-fit:contain}
-.machine-screen .tabs{margin:8px 0 3px;padding:4px;gap:2px;scrollbar-width:thin;scrollbar-color:#b6c8b2 transparent;overscroll-behavior-x:contain}
-.machine-screen .tabs::-webkit-scrollbar{display:block;height:3px}
-.machine-screen .tabs::-webkit-scrollbar-thumb{background:#b6c8b2;border-radius:3px}
-.machine-screen .tabs button{font-size:12px;padding:9px 11px}
-.tabs-hint{color:#718674;font-size:10px;text-align:right;margin:0 3px 7px}
+.machine-screen .tabs{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));overflow:visible;white-space:normal;margin:8px 0 11px;padding:4px;gap:3px}
+.machine-screen .tabs button{grid-column:span 3;min-width:0;min-height:34px;padding:4px 2px;font-size:10px;line-height:1.12}
+.machine-screen .tabs button:nth-child(n+5){grid-column:span 4}
+.phone main{scrollbar-width:none}
+.phone main::-webkit-scrollbar{display:none}
 .adjustment-list{display:grid;gap:5px}
 .adjustment-choice{display:flex;align-items:center;gap:10px;width:100%;min-height:58px;text-align:left;border:1px solid #e3e8df;border-radius:12px;background:#fff;color:#171b17;padding:7px 10px}
 .choice-number,.machine-item-number{display:grid;place-items:center;flex:0 0 27px;height:27px;border-radius:50%;background:#326c38;color:#fff;font-size:12px;font-weight:750}
@@ -59,3 +59,5 @@
 .wizard-back{flex:0 0 auto;background:#fff;border:1px solid #cbd8c8;color:#326c38}
 .wizard-next{flex:1;background:#326c38;border:1px solid #326c38;color:#fff;line-height:1.3}
 @media(prefers-reduced-motion:reduce){.machine-item-panel,.machine-chevron{transition:none}.machine-item.search-highlight{animation:none;background:#fff8e1}}
+
+.wizard-image img,.guide-figure img,.part-detail-image img{display:block;width:100%;height:auto;border-radius:12px}

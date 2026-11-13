@@ -40,6 +40,8 @@ jobs:
         working-directory: mobile/android
         run: |
           bash ./gradlew --no-daemon assembleDebug
+          python3 -c "import glob,xml.etree.ElementTree as e; p=glob.glob('app/build/intermediates/merged_manifests/debug/**/AndroidManifest.xml',recursive=True); assert p, 'Merged manifest not found'; banned={'android.permission.INTERNET','android.permission.ACCESS_NETWORK_STATE','android.permission.CHANGE_NETWORK_STATE'}; ns='{http://schemas.android.com/apk/res/android}name'; permissions={x.get(ns) for x in e.parse(p[0]).getroot().findall('uses-permission')}; assert not permissions.intersection(banned), 'Network permissions found in APK'"
+          python3 -c "import zipfile; z=zipfile.ZipFile('app/build/outputs/apk/debug/app-debug.apk'); assert not any('/studio/' in p.lower() or p.endswith('/studio.js') or p.endswith('/server.mjs') for p in z.namelist()), 'Studio files found in APK'"
           mkdir -p ../../dist
           cp app/build/outputs/apk/debug/app-debug.apk ../../dist/Kolibri-Mehfak.apk
       - name: Upload APK artifact

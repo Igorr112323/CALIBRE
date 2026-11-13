@@ -21,3 +21,7 @@ dist/
 /*.spec
 
 web/app/.vite/
+
+!web/app/media/
+!web/app/media/**
+studio/node_modules/
