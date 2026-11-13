@@ -21,17 +21,15 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
-      HF_HOME: ${{ runner.temp }}/kolibri-huggingface
       HF_HUB_DISABLE_XET: '1'
       OMP_NUM_THREADS: '4'
       MKL_NUM_THREADS: '4'
       TOKENIZERS_PARALLELISM: 'false'
-      KOLIBRI_WORK: ${{ runner.temp }}/kolibri-model-work
     steps:
       - name: Check out current commit
         uses: actions/checkout@v5
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - name: Check resources and enable 8 GB swap
@@ -39,7 +37,9 @@ jobs:
           set -eu
           df -h
           free -h
-          mkdir -p "$KOLIBRI_WORK"
+          echo "HF_HOME=$RUNNER_TEMP/kolibri-huggingface" >> "$GITHUB_ENV"
+          echo "KOLIBRI_WORK=$RUNNER_TEMP/kolibri-model-work" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/kolibri-model-work"
           sudo fallocate -l 8G /mnt/kolibri-training.swap
           sudo chmod 600 /mnt/kolibri-training.swap
           sudo mkswap /mnt/kolibri-training.swap
@@ -95,7 +95,7 @@ jobs:
           python python_studio/training/verify_release.py --output "$KOLIBRI_WORK" --dataset "$RUNNER_TEMP/train.jsonl" --manifest "$RUNNER_TEMP/dataset-manifest.json" --report "$KOLIBRI_WORK/AI_EVALUATION_QWEN25_3B_FINETUNED.json" --expected-server-id kolibri-qwen2.5-mehfak.gguf
       - name: Upload actual diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: kolibri-qwen-training-diagnostics
           path: |

@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -16,6 +17,19 @@ import evaluate_real_model
 import prepare_release
 import train_kolibri_gguf
 import verify_release
+
+
+class WorkflowTests(unittest.TestCase):
+    def test_runner_temp_is_initialized_inside_a_step(self):
+        workflow = ROOT.parent / '.github' / 'workflows' / 'train-kolibri-gguf.yml'
+        if not workflow.is_file():
+            self.skipTest('Workflow GitHub не входит в переносимый архив Studio.')
+        text = workflow.read_text(encoding='utf-8')
+        job_env = re.search(r'(?ms)^    env:\n(.*?)(?=^    steps:)', text)
+        self.assertIsNotNone(job_env)
+        self.assertNotIn('${{ runner.', job_env.group(1))
+        self.assertIn('HF_HOME=$RUNNER_TEMP/kolibri-huggingface', text)
+        self.assertIn('KOLIBRI_WORK=$RUNNER_TEMP/kolibri-model-work', text)
 
 
 class DatasetTests(unittest.TestCase):
