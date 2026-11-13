@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+data/
+models/*
+!models/README.md
+runtime/*
+!runtime/README.md

@@ -1,0 +1,22 @@
+{
+  "name": "calibre-android",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Android-приложение Kolibri на Capacitor",
+  "scripts": {
+    "build": "vite build --config vite.config.mjs",
+    "cap:sync": "npm run build && node prepare-runtime.mjs && cap sync android",
+    "android:open": "npm run cap:sync && cap open android",
+    "android:debug": "npm run cap:sync && cd android && gradlew.bat assembleDebug",
+    "capacitor:update:after": "node clean-generated.mjs",
+    "build:stand": "npm run build && node prepare-runtime.mjs && node build-stand.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.4.3",
+    "@capacitor/core": "8.4.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.4.3",
+    "vite": "^8.3.5"
+  }
+}

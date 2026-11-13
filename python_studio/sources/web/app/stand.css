@@ -1,0 +1,39 @@
+body.native-mode{margin:0;padding:0;min-height:100dvh}
+body.native-mode #app.phone{width:100%;max-width:none;height:100dvh;min-height:100dvh;margin:0;border:0;border-radius:0;box-shadow:none}
+body.native-mode .app-header{border-radius:0}
+body.browser-mode{margin:0;padding:0;min-height:100dvh;background:#e9ece5;color:#1d2820}
+.preview-stand{min-height:100dvh;display:flex;align-items:center;justify-content:center;gap:clamp(48px,7vw,112px);padding:48px 32px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+.preview-panel{width:min(100%,390px);flex:0 1 390px;align-self:center}
+.preview-brand{display:flex;align-items:center;gap:12px;font-size:13px;font-weight:800;letter-spacing:.17em;color:#243c2a}
+.preview-brand small{display:block;font-size:9px;letter-spacing:.2em;color:#829084;margin-top:4px}
+.preview-brand-icon{width:43px;height:43px;display:grid;place-items:center;border-radius:14px;background:#315d3a;color:#f7f8f1;font-size:22px;letter-spacing:0;font-family:Georgia,serif}
+.preview-kicker{margin-top:68px;display:flex;align-items:center;gap:9px;font-size:10px;font-weight:750;letter-spacing:.16em;color:#68816d}
+.preview-kicker span,.preview-note-dot{width:7px;height:7px;flex:none;border-radius:50%;background:#73a86d}
+.preview-panel h2{margin:17px 0 14px;font-family:Georgia,"Times New Roman",serif;font-size:clamp(30px,3vw,42px);font-weight:400;line-height:1.15;letter-spacing:-.035em;color:#1b2c20}
+.preview-description{max-width:350px;margin:0 0 27px;color:#68776b;font-size:14px;line-height:1.7}
+.preview-download{display:flex;align-items:center;justify-content:space-between;gap:15px;min-height:58px;padding:0 19px;border-radius:13px;background:#315f3b;color:#fff;text-decoration:none;font-size:14px;font-weight:700;box-shadow:0 8px 20px #315f3b22;transition:background .2s,transform .2s}
+.preview-download:hover{background:#254c2e;transform:translateY(-1px)}
+.preview-download span:last-child{font-size:23px;font-weight:400}
+.preview-releases{display:inline-flex;align-items:center;gap:8px;margin:15px 0 0 2px;color:#687c6d;font-size:12px;font-weight:600;text-decoration:none}
+.preview-releases:hover{text-decoration:underline}
+.preview-divider{height:1px;margin:40px 0 23px;background:#d4dcd1}
+.preview-controls-title{display:flex;justify-content:space-between;gap:12px;color:#788d7b;font-size:10px;font-weight:800;letter-spacing:.13em}
+.preview-controls-title span{font-weight:500;letter-spacing:.08em}
+.preview-controls{display:grid;gap:8px;margin-top:14px}
+.preview-controls button{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:48px;padding:0 15px;border:1px solid #d9e1d6;border-radius:11px;background:#f7f9f4;color:#34483a;text-align:left;font-size:13px;font-weight:600;transition:background .2s,border-color .2s}
+.preview-controls button:hover{background:#fff;border-color:#a7bba7}
+.preview-controls button span:last-child{font-size:18px;color:#8ca08d;font-weight:400}
+.preview-controls button:focus-visible,.preview-download:focus-visible,.preview-releases:focus-visible{outline:3px solid #80ae7d;outline-offset:3px}
+.preview-note{display:flex;align-items:center;gap:9px;margin-top:28px;color:#86958a;font-size:11px;line-height:1.5}
+.preview-device-area{width:min(414px,100%);flex:none}
+.preview-device-label{display:flex;justify-content:space-between;gap:12px;margin:0 4px 13px;color:#87988a;font-size:9px;font-weight:800;letter-spacing:.13em}
+.preview-device{padding:0 12px 12px;border:1px solid #343c34;border-radius:42px;background:#1e2520;box-shadow:0 34px 70px #23352830,0 4px 10px #23352824}
+.preview-device-top{height:27px;display:grid;place-items:center}
+.preview-device-top span{width:68px;height:5px;border-radius:10px;background:#505953}
+.preview-device-screen{width:100%;aspect-ratio:390 / 844;overflow:hidden;border-radius:27px;background:#f7f8f1}
+body.browser-mode #app.phone{width:100%;max-width:none;height:100%;min-height:0;margin:0;border:0;border-radius:0;box-shadow:none}
+body.browser-mode .app-header{border-radius:0}
+.preview-device-caption{text-align:center;margin:19px 0 0;color:#98a69a;font-size:9px;font-weight:700;letter-spacing:.18em}
+.preview-device-caption span{margin:0 5px;color:#b7c2b5}
+@media(max-width:760px){.preview-stand{flex-direction:column;align-items:center;gap:30px;padding:24px 16px 40px}.preview-panel{width:min(100%,414px);flex:auto}.preview-brand-icon{width:36px;height:36px;border-radius:11px;font-size:19px}.preview-kicker{margin-top:25px}.preview-panel h2{font-size:29px;margin:11px 0 9px}.preview-panel h2 br{display:none}.preview-description{margin-bottom:18px}.preview-download{min-height:52px}.preview-divider{margin:23px 0 17px}.preview-controls{grid-template-columns:repeat(2,minmax(0,1fr))}.preview-controls button{min-height:44px;padding:0 11px;font-size:12px}.preview-note{margin-top:16px}.preview-device-area{width:min(414px,100%)}.preview-device{border-radius:36px}.preview-device-screen{border-radius:23px}}
+@media(max-width:350px){.preview-controls{grid-template-columns:1fr}.preview-stand{padding-left:12px;padding-right:12px}}

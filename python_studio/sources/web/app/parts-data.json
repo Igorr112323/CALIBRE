@@ -1,0 +1,1737 @@
+[
+  {
+    "id": "assembly",
+    "title": "Грабли в сборе",
+    "subtitle": "Все основные узлы вместе",
+    "code": "ГРН-471.00.000",
+    "pages": [
+      38,
+      39
+    ],
+    "figures": [
+      36,
+      37
+    ],
+    "multiplier": 1,
+    "items": [
+      {
+        "position": 1,
+        "designation": "ГРН-471.00.060",
+        "name": "Контрпривод",
+        "quantity": 1,
+        "note": "",
+        "page": 38,
+        "figure": 37,
+        "point": [
+          959,
+          521
+        ]
+      },
+      {
+        "position": 2,
+        "designation": "ГРН-471.00.080",
+        "name": "Шпилька",
+        "quantity": 1,
+        "note": "",
+        "page": 38,
+        "figure": 37,
+        "point": [
+          358,
+          141
+        ]
+      },
+      {
+        "position": 3,
+        "designation": "ГРН-471.00.160",
+        "name": "Упор",
+        "quantity": 1,
+        "note": "",
+        "page": 38,
+        "figure": 36,
+        "point": [
+          268,
+          571
+        ]
+      },
+      {
+        "position": 4,
+        "designation": "ГРН-471.02.000",
+        "name": "Каретка",
+        "quantity": 1,
+        "note": "",
+        "page": 38,
+        "figure": 36,
+        "point": [
+          565,
+          462
+        ]
+      },
+      {
+        "position": 5,
+        "designation": "ГРН-471.03.000А",
+        "name": "Рама",
+        "quantity": 1,
+        "note": "",
+        "page": 38,
+        "figure": 36,
+        "point": [
+          572,
+          280
+        ]
+      },
+      {
+        "position": 6,
+        "designation": "ГРН-471.04.000",
+        "name": "Навеска",
+        "quantity": 1,
+        "note": "",
+        "page": 38,
+        "figure": 36,
+        "point": [
+          318,
+          361
+        ]
+      },
+      {
+        "position": 7,
+        "designation": "ГРН-471.05.000",
+        "name": "Ограждение правое",
+        "quantity": 1,
+        "note": "",
+        "page": 38,
+        "figure": 36,
+        "point": [
+          364,
+          218
+        ]
+      },
+      {
+        "position": 8,
+        "designation": "ГРН-471.90.000",
+        "name": "Фиксатор",
+        "quantity": 2,
+        "note": "",
+        "page": 38,
+        "figure": 36,
+        "point": [
+          144,
+          485
+        ]
+      },
+      {
+        "position": 9,
+        "designation": "ГРП-811.05.03.030",
+        "name": "Граблина",
+        "quantity": 11,
+        "note": "",
+        "page": 38,
+        "figure": 36,
+        "point": [
+          845,
+          294
+        ]
+      },
+      {
+        "position": 10,
+        "designation": "ГРН-471.00.401",
+        "name": "Шайба стопорная",
+        "quantity": 1,
+        "note": "",
+        "page": 38,
+        "figure": 37,
+        "point": [
+          730,
+          211
+        ]
+      },
+      {
+        "position": 11,
+        "designation": "ГРН-471.00.401-01",
+        "name": "Шайба стопорная",
+        "quantity": 1,
+        "note": "",
+        "page": 38,
+        "figure": 37,
+        "point": [
+          764,
+          210
+        ]
+      },
+      {
+        "position": 12,
+        "designation": "ГРН-471.00.409",
+        "name": "Шайба",
+        "quantity": 2,
+        "note": "Доп. замена на Шайба С16.01.019 ГОСТ 6958-78",
+        "page": 38,
+        "figure": 37,
+        "point": [
+          432,
+          115
+        ]
+      },
+      {
+        "position": 13,
+        "designation": "ГРН-471.00.608",
+        "name": "Ось",
+        "quantity": 1,
+        "note": "",
+        "page": 38,
+        "figure": 36,
+        "point": [
+          255,
+          427
+        ]
+      },
+      {
+        "position": 14,
+        "designation": "ГРН-00.407",
+        "name": "Шайба",
+        "quantity": 2,
+        "note": "",
+        "page": 38,
+        "figure": 36,
+        "point": [
+          163,
+          402
+        ]
+      },
+      {
+        "position": 15,
+        "designation": "",
+        "name": "Болт М12-6g*45.88.019 ГОСТ 7798-70",
+        "quantity": 4,
+        "note": "",
+        "page": 38,
+        "figure": 37,
+        "point": [
+          758,
+          657
+        ]
+      },
+      {
+        "position": 16,
+        "designation": "",
+        "name": "Болт М16-6g*45.88.019 ГОСТ 7798-70",
+        "quantity": 5,
+        "note": "",
+        "page": 38,
+        "figure": 37,
+        "point": [
+          784,
+          154
+        ]
+      },
+      {
+        "position": 17,
+        "designation": "",
+        "name": "Гайка М12-6Н.6.019 ГОСТ 5915-70",
+        "quantity": 8,
+        "note": "",
+        "page": 38,
+        "figure": 37,
+        "point": [
+          970,
+          621
+        ]
+      },
+      {
+        "position": 18,
+        "designation": "",
+        "name": "Гайка М16-6Н.6.019 ГОСТ 5915-70",
+        "quantity": 2,
+        "note": "",
+        "page": 38,
+        "figure": 37,
+        "point": [
+          411,
+          288
+        ]
+      },
+      {
+        "position": 19,
+        "designation": "",
+        "name": "Шайба 16Т.65Г.019 ГОСТ 6402-70",
+        "quantity": 1,
+        "note": "",
+        "page": 38,
+        "figure": 37,
+        "point": [
+          344,
+          272
+        ]
+      },
+      {
+        "position": 20,
+        "designation": "",
+        "name": "Шайба С.12.01.019 ГОСТ 11371-78",
+        "quantity": 12,
+        "note": "",
+        "page": 38,
+        "figure": 36,
+        "point": [
+          175,
+          190
+        ]
+      },
+      {
+        "position": 21,
+        "designation": "",
+        "name": "Шайба С.16.01.019 ГОСТ 11371-78",
+        "quantity": 4,
+        "note": "",
+        "page": 38,
+        "figure": 37,
+        "point": [
+          684,
+          211
+        ]
+      },
+      {
+        "position": 22,
+        "designation": "",
+        "name": "Шплинт 3,2*25.019 ГОСТ 397-79",
+        "quantity": 12,
+        "note": "",
+        "page": 38,
+        "figure": 36,
+        "point": [
+          149,
+          190
+        ]
+      },
+      {
+        "position": 23,
+        "designation": "",
+        "name": "Шплинт 8*63.019 ГОСТ 397-79",
+        "quantity": 2,
+        "note": "",
+        "page": 38,
+        "figure": 36,
+        "point": [
+          255,
+          392
+        ]
+      },
+      {
+        "position": 24,
+        "designation": "",
+        "name": "Шпонка 14*9*150 ГОСТ 23360-78",
+        "quantity": 2,
+        "note": "",
+        "page": 38,
+        "figure": 37,
+        "point": [
+          344,
+          237
+        ]
+      },
+      {
+        "position": 25,
+        "designation": "",
+        "name": "Ось 2-12h11х75.35.Ц9Хр ГОСТ 9650-80",
+        "quantity": 2,
+        "note": "",
+        "page": 38,
+        "figure": 36,
+        "point": [
+          203,
+          190
+        ]
+      },
+      {
+        "position": 26,
+        "designation": "",
+        "name": "Ось 2-12h11х90.35.Ц9Хр ГОСТ 9650-80",
+        "quantity": 4,
+        "note": "",
+        "page": 38,
+        "figure": 36,
+        "point": [
+          533,
+          97
+        ]
+      },
+      {
+        "position": 27,
+        "designation": "",
+        "name": "Шплинт пружинный 2.3,6х50.019 ОСТ 23.2.2.-79",
+        "quantity": 2,
+        "note": "",
+        "page": 39,
+        "figure": 36,
+        "point": [
+          248,
+          596
+        ]
+      },
+      {
+        "position": 28,
+        "designation": "2005/1200/KH/37.1-37.1",
+        "name": "Вал карданный по каталогу La Magdalena",
+        "quantity": 1,
+        "note": "",
+        "page": 39,
+        "figure": 37,
+        "point": [
+          618,
+          299
+        ]
+      },
+      {
+        "position": 29,
+        "designation": "2005/950/KH/37.28-93.8",
+        "name": "Вал карданный с обгонной муфтой по каталогу La Magdalena",
+        "quantity": 1,
+        "note": "",
+        "page": 39,
+        "figure": 37,
+        "point": [
+          760,
+          359
+        ]
+      },
+      {
+        "position": 30,
+        "designation": "",
+        "name": "Кожух С.270 по каталогу “La Magdalena”",
+        "quantity": 1,
+        "note": "",
+        "page": 39,
+        "figure": 37,
+        "point": [
+          874,
+          640
+        ]
+      },
+      {
+        "position": 31,
+        "designation": "170-01.110.ACT",
+        "name": "Редуктор Staroselski",
+        "quantity": 1,
+        "note": "Польша",
+        "page": 39,
+        "figure": 37,
+        "point": [
+          510,
+          493
+        ]
+      },
+      {
+        "position": 32,
+        "designation": "ГРН-471.06.000А",
+        "name": "Ограждение левое",
+        "quantity": 1,
+        "note": "",
+        "page": 39,
+        "figure": 37,
+        "point": [
+          222,
+          269
+        ]
+      },
+      {
+        "position": 33,
+        "designation": "",
+        "name": "Болт М8-6g*25.88.019 ГОСТ 7798-70",
+        "quantity": 2,
+        "note": "",
+        "page": 39,
+        "figure": 36,
+        "point": [
+          642,
+          585
+        ]
+      },
+      {
+        "position": 34,
+        "designation": "",
+        "name": "Шайба С.8.01.019 ГОСТ 11371-78",
+        "quantity": 2,
+        "note": "",
+        "page": 39,
+        "figure": 36,
+        "point": [
+          686,
+          626
+        ]
+      },
+      {
+        "position": 35,
+        "designation": "",
+        "name": "Гайка М8-6Н.6.016 ТУ 23.4617472.08-92",
+        "quantity": 2,
+        "note": "",
+        "page": 39,
+        "figure": 36,
+        "point": [
+          760,
+          622
+        ]
+      },
+      {
+        "position": 36,
+        "designation": "",
+        "name": "Тубус АА101 “Meccanoplast” Италия",
+        "quantity": 1,
+        "note": "",
+        "page": 39,
+        "figure": 36,
+        "point": [
+          667,
+          574
+        ]
+      }
+    ]
+  },
+  {
+    "id": "hitch",
+    "title": "Навеска к трактору",
+    "subtitle": "Соединяет грабли с трактором",
+    "code": "ГРН-471.04.000",
+    "pages": [
+      41
+    ],
+    "figures": [
+      40
+    ],
+    "multiplier": 1,
+    "items": [
+      {
+        "position": 1,
+        "designation": "ГРН-471.04.010А",
+        "name": "Рамка",
+        "quantity": 1,
+        "note": "",
+        "page": 41,
+        "figure": 40,
+        "point": [
+          690,
+          175
+        ]
+      },
+      {
+        "position": 2,
+        "designation": "ГРН-471.04.020",
+        "name": "Кронштейн",
+        "quantity": 1,
+        "note": "",
+        "page": 41,
+        "figure": 40,
+        "point": [
+          564,
+          631
+        ]
+      },
+      {
+        "position": 3,
+        "designation": "ГРН-471.04.020-01",
+        "name": "Кронштейн",
+        "quantity": 1,
+        "note": "",
+        "page": 41,
+        "figure": 40,
+        "point": [
+          395,
+          465
+        ]
+      },
+      {
+        "position": 4,
+        "designation": "ЖТТ-00.340",
+        "name": "Стопор",
+        "quantity": 1,
+        "note": "",
+        "page": 41,
+        "figure": 40,
+        "point": [
+          784,
+          301
+        ]
+      },
+      {
+        "position": 5,
+        "designation": "ЖТТ-00.620",
+        "name": "Стойка",
+        "quantity": 1,
+        "note": "",
+        "page": 41,
+        "figure": 40,
+        "point": [
+          819,
+          511
+        ]
+      },
+      {
+        "position": 6,
+        "designation": "КРК-01.604А",
+        "name": "Ось",
+        "quantity": 1,
+        "note": "",
+        "page": 41,
+        "figure": 40,
+        "point": [
+          339,
+          192
+        ]
+      },
+      {
+        "position": 7,
+        "designation": "44-60266",
+        "name": "Шплинт пружинный",
+        "quantity": 2,
+        "note": "Доп. замена на Шплинт 2.45*50.019 ОСТ 23.2.2-79",
+        "page": 41,
+        "figure": 40,
+        "point": [
+          352,
+          90
+        ]
+      },
+      {
+        "position": 8,
+        "designation": "",
+        "name": "Ось 2-25h11х150.35.Ц9Хр ГОСТ 9650-80",
+        "quantity": 2,
+        "note": "",
+        "page": 41,
+        "figure": 40,
+        "point": [
+          391,
+          338
+        ]
+      },
+      {
+        "position": 9,
+        "designation": "",
+        "name": "Шайба С.24.01.019 ГОСТ 11371-78",
+        "quantity": 4,
+        "note": "",
+        "page": 41,
+        "figure": 40,
+        "point": [
+          329,
+          429
+        ]
+      },
+      {
+        "position": 10,
+        "designation": "",
+        "name": "Шплинт 6,3*40.019 ГОСТ 397-79",
+        "quantity": 4,
+        "note": "",
+        "page": 41,
+        "figure": 40,
+        "point": [
+          280,
+          378
+        ]
+      },
+      {
+        "position": 11,
+        "designation": "",
+        "name": "Шплинт 2.2,8*40.019 ОСТ 23.2.2-79",
+        "quantity": 1,
+        "note": "",
+        "page": 41,
+        "figure": 40,
+        "point": [
+          722,
+          375
+        ]
+      }
+    ]
+  },
+  {
+    "id": "carriage",
+    "title": "Опорная каретка",
+    "subtitle": "Поддерживает машину на колёсах",
+    "code": "ГРН-471.02.000",
+    "pages": [
+      43
+    ],
+    "figures": [
+      42
+    ],
+    "multiplier": 1,
+    "items": [
+      {
+        "position": 1,
+        "designation": "ГРН-471.02.010Г",
+        "name": "Балка",
+        "quantity": 1,
+        "note": "",
+        "page": 43,
+        "figure": 42,
+        "point": [
+          507,
+          170
+        ]
+      },
+      {
+        "position": 2,
+        "designation": "ГРН-471.02.060",
+        "name": "Колесо",
+        "quantity": 4,
+        "note": "",
+        "page": 43,
+        "figure": 42,
+        "point": [
+          229,
+          236
+        ]
+      },
+      {
+        "position": 3,
+        "designation": "ГРН-471.02.080Б",
+        "name": "Стойка",
+        "quantity": 1,
+        "note": "",
+        "page": 43,
+        "figure": 42,
+        "point": [
+          442,
+          406
+        ]
+      },
+      {
+        "position": 4,
+        "designation": "ГРН-471.02.080Б-01",
+        "name": "Стойка",
+        "quantity": 1,
+        "note": "",
+        "page": 43,
+        "figure": 42,
+        "point": [
+          608,
+          382
+        ]
+      },
+      {
+        "position": 5,
+        "designation": "ГРН-471.02.100Б",
+        "name": "Коромысло",
+        "quantity": 1,
+        "note": "",
+        "page": 43,
+        "figure": 42,
+        "point": [
+          301,
+          426
+        ]
+      },
+      {
+        "position": 6,
+        "designation": "ГРН-471.02.100Б-01",
+        "name": "Коромысло",
+        "quantity": 1,
+        "note": "",
+        "page": 43,
+        "figure": 42,
+        "point": [
+          763,
+          405
+        ]
+      },
+      {
+        "position": 7,
+        "designation": "ГРН-471.02.090А",
+        "name": "Винт",
+        "quantity": 2,
+        "note": "",
+        "page": 43,
+        "figure": 42,
+        "point": [
+          442,
+          335
+        ]
+      },
+      {
+        "position": 8,
+        "designation": "",
+        "name": "Шайба С.24.01.019 ГОСТ 11371-78",
+        "quantity": 2,
+        "note": "",
+        "page": 43,
+        "figure": 42,
+        "point": [
+          339,
+          187
+        ]
+      },
+      {
+        "position": 9,
+        "designation": "",
+        "name": "Шайба С.27.01.019 ГОСТ 11371-78",
+        "quantity": 2,
+        "note": "",
+        "page": 43,
+        "figure": 42,
+        "point": [
+          132,
+          442
+        ]
+      },
+      {
+        "position": 10,
+        "designation": "",
+        "name": "Шплинт 6,3*40.019 ГОСТ 397-79",
+        "quantity": 4,
+        "note": "",
+        "page": 43,
+        "figure": 42,
+        "point": [
+          425,
+          154
+        ]
+      },
+      {
+        "position": 11,
+        "designation": "",
+        "name": "Шплинт 6,3*71.01.019 ГОСТ 397-79",
+        "quantity": 4,
+        "note": "",
+        "page": 43,
+        "figure": 42,
+        "point": [
+          138,
+          397
+        ]
+      },
+      {
+        "position": 12,
+        "designation": "",
+        "name": "Масленка 1.2.Ц6.хр ГОСТ 19853-74",
+        "quantity": 2,
+        "note": "",
+        "page": 43,
+        "figure": 42,
+        "point": [
+          458,
+          451
+        ]
+      }
+    ]
+  },
+  {
+    "id": "wheel",
+    "title": "Колесо каретки",
+    "subtitle": "Помогает каретке катиться по полю",
+    "code": "ГРН-471.02.060",
+    "pages": [
+      45
+    ],
+    "figures": [
+      44
+    ],
+    "multiplier": 4,
+    "items": [
+      {
+        "position": 1,
+        "designation": "ГРН-02.070",
+        "name": "Ступица",
+        "quantity": 1,
+        "note": "",
+        "page": 45,
+        "figure": 44,
+        "point": [
+          785,
+          370
+        ]
+      },
+      {
+        "position": 2,
+        "designation": "ГРН-471.02.405А",
+        "name": "Обод",
+        "quantity": 1,
+        "note": "",
+        "page": 45,
+        "figure": 44,
+        "point": [
+          396,
+          476
+        ]
+      },
+      {
+        "position": 3,
+        "designation": "ГРН-471.02.406А",
+        "name": "Обод",
+        "quantity": 1,
+        "note": "",
+        "page": 45,
+        "figure": 44,
+        "point": [
+          483,
+          455
+        ]
+      },
+      {
+        "position": 4,
+        "designation": "ГРН-471.02.604",
+        "name": "Ось",
+        "quantity": 1,
+        "note": "",
+        "page": 45,
+        "figure": 44,
+        "point": [
+          866,
+          325
+        ]
+      },
+      {
+        "position": 5,
+        "designation": "ГРН-02.407А",
+        "name": "Кольцо",
+        "quantity": 1,
+        "note": "",
+        "page": 45,
+        "figure": 44,
+        "point": [
+          652,
+          222
+        ]
+      },
+      {
+        "position": 6,
+        "designation": "КРК-07.404",
+        "name": "Кольцо",
+        "quantity": 2,
+        "note": "",
+        "page": 45,
+        "figure": 44,
+        "point": [
+          576,
+          270
+        ]
+      },
+      {
+        "position": 7,
+        "designation": "КРК-07.404-01",
+        "name": "Кольцо",
+        "quantity": 2,
+        "note": "",
+        "page": 45,
+        "figure": 44,
+        "point": [
+          568,
+          389
+        ]
+      },
+      {
+        "position": 8,
+        "designation": "",
+        "name": "Болт М16-6g*40.88.35.019 ГОСТ 7798-70",
+        "quantity": 5,
+        "note": "",
+        "page": 45,
+        "figure": 44,
+        "point": [
+          800,
+          195
+        ]
+      },
+      {
+        "position": 9,
+        "designation": "",
+        "name": "Гайка М16-6Н.6.019 ГОСТ 5915-70",
+        "quantity": 5,
+        "note": "",
+        "page": 45,
+        "figure": 44,
+        "point": [
+          236,
+          318
+        ]
+      },
+      {
+        "position": 10,
+        "designation": "",
+        "name": "Шайба 16Т.65Г.019 ГОСТ 6402-70",
+        "quantity": 5,
+        "note": "",
+        "page": 45,
+        "figure": 44,
+        "point": [
+          291,
+          309
+        ]
+      },
+      {
+        "position": 11,
+        "designation": "",
+        "name": "Подшипник 180207 ГОСТ 8882-75",
+        "quantity": 2,
+        "note": "",
+        "page": 45,
+        "figure": 44,
+        "point": [
+          892,
+          202
+        ]
+      },
+      {
+        "position": 12,
+        "designation": "",
+        "name": "Кольцо А35 ГОСТ 13940-86",
+        "quantity": 1,
+        "note": "",
+        "page": 45,
+        "figure": 44,
+        "point": [
+          500,
+          285
+        ]
+      },
+      {
+        "position": 13,
+        "designation": "",
+        "name": "Шина 5.00-10 ТУ 38.104123-88",
+        "quantity": 1,
+        "note": "",
+        "page": 45,
+        "figure": 44,
+        "point": [
+          234,
+          558
+        ]
+      }
+    ]
+  },
+  {
+    "id": "tine",
+    "title": "Граблина в разборе",
+    "subtitle": "Пальцы собирают траву в валок",
+    "code": "ГРП-811.05.03.030",
+    "pages": [
+      47
+    ],
+    "figures": [
+      46
+    ],
+    "multiplier": 11,
+    "items": [
+      {
+        "position": 1,
+        "designation": "ГРН-471.01.401Б",
+        "name": "Фиксатор",
+        "quantity": 4,
+        "note": "",
+        "page": 47,
+        "figure": 46,
+        "point": [
+          515,
+          359
+        ]
+      },
+      {
+        "position": 2,
+        "designation": "ГРН-01.601",
+        "name": "Граблина",
+        "quantity": 4,
+        "note": "Доп. замена на Зуб пружинный ГРН-01.604",
+        "page": 47,
+        "figure": 46,
+        "point": [
+          825,
+          286
+        ]
+      },
+      {
+        "position": 3,
+        "designation": "",
+        "name": "Болт М12-6g*90.109.019 ГОСТ 7798-70",
+        "quantity": 4,
+        "note": "",
+        "page": 47,
+        "figure": 46,
+        "point": [
+          589,
+          145
+        ]
+      },
+      {
+        "position": 4,
+        "designation": "",
+        "name": "Гайка М12-6Н.10.019 ГОСТ 5915-70",
+        "quantity": 8,
+        "note": "",
+        "page": 47,
+        "figure": 46,
+        "point": [
+          646,
+          426
+        ]
+      },
+      {
+        "position": 5,
+        "designation": "",
+        "name": "Ось 6-10d11х70.45.Ц9Хр ГОСТ 9650-80",
+        "quantity": 2,
+        "note": "",
+        "page": 47,
+        "figure": 46,
+        "point": [
+          235,
+          299
+        ]
+      },
+      {
+        "position": 6,
+        "designation": "",
+        "name": "Шплинт 2.2,8*40.019 ОСТ 23.2.2-79",
+        "quantity": 2,
+        "note": "",
+        "page": 47,
+        "figure": 46,
+        "point": [
+          230,
+          140
+        ]
+      },
+      {
+        "position": 7,
+        "designation": "",
+        "name": "Шайба 13-21,5-Ц-ОСТ 1 11497-74",
+        "quantity": 4,
+        "note": "",
+        "page": 47,
+        "figure": 46,
+        "point": [
+          553,
+          219
+        ]
+      },
+      {
+        "position": 8,
+        "designation": "",
+        "name": "Заглушка ЕР 5",
+        "quantity": 1,
+        "note": "Доп. замена на Заглушка пластмассовая Д28/Т",
+        "page": 47,
+        "figure": 46,
+        "point": [
+          714,
+          264
+        ]
+      },
+      {
+        "position": 9,
+        "designation": "",
+        "name": "Кабельная стяжка КСУ 9х450",
+        "quantity": 1,
+        "note": "",
+        "page": 47,
+        "figure": 46,
+        "point": [
+          903,
+          429
+        ]
+      },
+      {
+        "position": 10,
+        "designation": "ГРП-811.05.03.080",
+        "name": "Штанга",
+        "quantity": 1,
+        "note": "",
+        "page": 47,
+        "figure": 46,
+        "point": [
+          431,
+          214
+        ]
+      }
+    ]
+  },
+  {
+    "id": "drive",
+    "title": "Контрпривод",
+    "subtitle": "Передаёт вращение к ротору",
+    "code": "ГРН-471.00.060",
+    "pages": [
+      49
+    ],
+    "figures": [
+      48
+    ],
+    "multiplier": 1,
+    "items": [
+      {
+        "position": 1,
+        "designation": "ГРН-00.070",
+        "name": "Корпус подшипника",
+        "quantity": 1,
+        "note": "",
+        "page": 49,
+        "figure": 48,
+        "point": [
+          762,
+          565
+        ]
+      },
+      {
+        "position": 2,
+        "designation": "ГРН-471.00.611",
+        "name": "Вал шлицевой",
+        "quantity": 1,
+        "note": "",
+        "page": 49,
+        "figure": 48,
+        "point": [
+          365,
+          434
+        ]
+      },
+      {
+        "position": 3,
+        "designation": "",
+        "name": "Кольцо С35 ГОСТ 13940-86",
+        "quantity": 1,
+        "note": "",
+        "page": 49,
+        "figure": 48,
+        "point": [
+          126,
+          356
+        ]
+      },
+      {
+        "position": 4,
+        "designation": "",
+        "name": "Кольцо С40 ГОСТ 13940-86",
+        "quantity": 1,
+        "note": "",
+        "page": 49,
+        "figure": 48,
+        "point": [
+          640,
+          509
+        ]
+      },
+      {
+        "position": 5,
+        "designation": "",
+        "name": "Кольцо С80 ГОСТ 13941-86",
+        "quantity": 1,
+        "note": "",
+        "page": 49,
+        "figure": 48,
+        "point": [
+          813,
+          315
+        ]
+      },
+      {
+        "position": 6,
+        "designation": "",
+        "name": "Подшипник 180207 ГОСТ 8882-75",
+        "quantity": 1,
+        "note": "",
+        "page": 49,
+        "figure": 48,
+        "point": [
+          287,
+          177
+        ]
+      },
+      {
+        "position": 7,
+        "designation": "",
+        "name": "Подшипник 180508 ГОСТ 8882-75",
+        "quantity": 1,
+        "note": "",
+        "page": 49,
+        "figure": 48,
+        "point": [
+          645,
+          272
+        ]
+      }
+    ]
+  },
+  {
+    "id": "right-guard",
+    "title": "Ограждение правое",
+    "subtitle": "Защищает с правой стороны",
+    "code": "ГРН-471.05.000",
+    "pages": [
+      51
+    ],
+    "figures": [
+      50
+    ],
+    "multiplier": 1,
+    "items": [
+      {
+        "position": 1,
+        "designation": "ГРН-471.05.010",
+        "name": "Рамка",
+        "quantity": 1,
+        "note": "",
+        "page": 51,
+        "figure": 50,
+        "point": [
+          516,
+          167
+        ]
+      },
+      {
+        "position": 2,
+        "designation": "ГРН-471.05.020",
+        "name": "Фиксатор",
+        "quantity": 1,
+        "note": "",
+        "page": 51,
+        "figure": 50,
+        "point": [
+          304,
+          573
+        ]
+      },
+      {
+        "position": 3,
+        "designation": "ГРН-05.602",
+        "name": "Стопор",
+        "quantity": 1,
+        "note": "",
+        "page": 51,
+        "figure": 50,
+        "point": [
+          219,
+          441
+        ]
+      },
+      {
+        "position": 4,
+        "designation": "ГРН-05.806",
+        "name": "Распорка",
+        "quantity": 1,
+        "note": "",
+        "page": 51,
+        "figure": 50,
+        "point": [
+          428,
+          518
+        ]
+      },
+      {
+        "position": 5,
+        "designation": "",
+        "name": "Шайба С.12.01.019 ГОСТ 11371-78",
+        "quantity": 2,
+        "note": "",
+        "page": 51,
+        "figure": 50,
+        "point": [
+          531,
+          364
+        ]
+      },
+      {
+        "position": 6,
+        "designation": "",
+        "name": "Шплинт 3,2*25.019 ГОСТ 397-79",
+        "quantity": 2,
+        "note": "",
+        "page": 51,
+        "figure": 50,
+        "point": [
+          496,
+          338
+        ]
+      },
+      {
+        "position": 7,
+        "designation": "",
+        "name": "Ось 2-12h11х75.35.Ц9Хр ГОСТ 9650-80",
+        "quantity": 1,
+        "note": "",
+        "page": 51,
+        "figure": 50,
+        "point": [
+          644,
+          296
+        ]
+      },
+      {
+        "position": 8,
+        "designation": "",
+        "name": "Маскирующая коническая заглушка EP 5.5",
+        "quantity": 1,
+        "note": "Доп. замена на Заглушка полиуретановая Д28хД24 L=26 мм СКУ 7Л",
+        "page": 51,
+        "figure": 50,
+        "point": [
+          943,
+          359
+        ]
+      }
+    ]
+  },
+  {
+    "id": "left-guard",
+    "title": "Левое ограждение с отражателем",
+    "subtitle": "Защищает и формирует валок",
+    "code": "ГРН-471.06.000А",
+    "pages": [
+      53,
+      54
+    ],
+    "figures": [
+      52
+    ],
+    "multiplier": 1,
+    "items": [
+      {
+        "position": 1,
+        "designation": "ГРН-471.06.010",
+        "name": "Рамка",
+        "quantity": 1,
+        "note": "",
+        "page": 53,
+        "figure": 52,
+        "point": [
+          775,
+          315
+        ]
+      },
+      {
+        "position": 2,
+        "designation": "ГРН-471.06.030",
+        "name": "Кронштейн",
+        "quantity": 1,
+        "note": "",
+        "page": 53,
+        "figure": 52,
+        "point": [
+          635,
+          393
+        ]
+      },
+      {
+        "position": 3,
+        "designation": "ГРН-471.06.040",
+        "name": "Державка",
+        "quantity": 1,
+        "note": "",
+        "page": 53,
+        "figure": 52,
+        "point": [
+          581,
+          356
+        ]
+      },
+      {
+        "position": 4,
+        "designation": "ГРН-471.06.060",
+        "name": "Накладка",
+        "quantity": 1,
+        "note": "",
+        "page": 53,
+        "figure": 52,
+        "point": [
+          595,
+          509
+        ]
+      },
+      {
+        "position": 5,
+        "designation": "ГРН-471.05.020",
+        "name": "Фиксатор",
+        "quantity": 1,
+        "note": "",
+        "page": 53,
+        "figure": 52,
+        "point": [
+          849,
+          541
+        ]
+      },
+      {
+        "position": 6,
+        "designation": "ГРН-471.06.070",
+        "name": "Отражатель",
+        "quantity": 1,
+        "note": "Совместно с поз.7,8,9,10 доп. замена на ГРН- 350.05.100 Отражатель",
+        "page": 53,
+        "figure": 52,
+        "point": [
+          308,
+          504
+        ]
+      },
+      {
+        "position": 7,
+        "designation": "ГРН-471.06.403А",
+        "name": "Кронштейн",
+        "quantity": 1,
+        "note": "Совместно с поз.6,8,9,10 доп. замена на ГРН- 350.05.100 Отражатель",
+        "page": 53,
+        "figure": 52,
+        "point": [
+          167,
+          331
+        ]
+      },
+      {
+        "position": 8,
+        "designation": "ГРН-471.06.411А",
+        "name": "Вкладыш",
+        "quantity": 6,
+        "note": "Совместно с поз.6,7,9,10 доп. замена на ГРН- 350.05.100 Отражатель",
+        "page": 53,
+        "figure": 52,
+        "point": [
+          442,
+          238
+        ]
+      },
+      {
+        "position": 9,
+        "designation": "ГРН-471.06.412",
+        "name": "Прижим",
+        "quantity": 1,
+        "note": "Совместно с поз.6,7,8,10 доп. замена на ГРН- 350.05.100 Отражатель",
+        "page": 53,
+        "figure": 52,
+        "point": [
+          485,
+          244
+        ]
+      },
+      {
+        "position": 10,
+        "designation": "ГРН-471.06.412-01",
+        "name": "Прижим",
+        "quantity": 1,
+        "note": "Совместно с поз.6,7,8,9 доп. замена на ГРН- 350.05.100 Отражатель",
+        "page": 53,
+        "figure": 52,
+        "point": [
+          156,
+          422
+        ]
+      },
+      {
+        "position": 11,
+        "designation": "ГРН-05.602",
+        "name": "Стопор",
+        "quantity": 2,
+        "note": "",
+        "page": 53,
+        "figure": 52,
+        "point": [
+          566,
+          263
+        ]
+      },
+      {
+        "position": 12,
+        "designation": "ГРН-05.806",
+        "name": "Распорка",
+        "quantity": 1,
+        "note": "",
+        "page": 53,
+        "figure": 52,
+        "point": [
+          779,
+          441
+        ]
+      },
+      {
+        "position": 13,
+        "designation": "",
+        "name": "Болт М6-6g*20.88.019 ГОСТ 7798-70",
+        "quantity": 19,
+        "note": "",
+        "page": 53,
+        "figure": 52,
+        "point": [
+          306,
+          204
+        ]
+      },
+      {
+        "position": 14,
+        "designation": "",
+        "name": "Болт М8-6g*65.88.019 ГОСТ 7798-70",
+        "quantity": 4,
+        "note": "",
+        "page": 53,
+        "figure": 52,
+        "point": [
+          555,
+          374
+        ]
+      },
+      {
+        "position": 15,
+        "designation": "",
+        "name": "Болт М10-6g*25.88.019 ГОСТ 7798-70",
+        "quantity": 4,
+        "note": "",
+        "page": 53,
+        "figure": 52,
+        "point": [
+          199,
+          246
+        ]
+      },
+      {
+        "position": 16,
+        "designation": "",
+        "name": "Гайка М6-6Н.6.019 ГОСТ 5915-70",
+        "quantity": 19,
+        "note": "",
+        "page": 53,
+        "figure": 52,
+        "point": [
+          495,
+          329
+        ]
+      },
+      {
+        "position": 17,
+        "designation": "",
+        "name": "Гайка М8-6Н.6.019 ГОСТ 5915-70",
+        "quantity": 4,
+        "note": "",
+        "page": 53,
+        "figure": 52,
+        "point": [
+          616,
+          296
+        ]
+      },
+      {
+        "position": 18,
+        "designation": "",
+        "name": "Гайка М10-6Н.6.019 ГОСТ 5915-70",
+        "quantity": 4,
+        "note": "",
+        "page": 54,
+        "figure": 52,
+        "point": [
+          436,
+          480
+        ]
+      },
+      {
+        "position": 19,
+        "designation": "",
+        "name": "Шайба 6Т.65Г.019 ГОСТ 6402-70",
+        "quantity": 19,
+        "note": "",
+        "page": 54,
+        "figure": 52,
+        "point": [
+          461,
+          329
+        ]
+      },
+      {
+        "position": 20,
+        "designation": "",
+        "name": "Шайба 8Т.65Г.019 ГОСТ 6402-70",
+        "quantity": 4,
+        "note": "",
+        "page": 54,
+        "figure": 52,
+        "point": [
+          603,
+          329
+        ]
+      },
+      {
+        "position": 21,
+        "designation": "",
+        "name": "Шайба 10Т.65Г.019 ГОСТ 6402-70",
+        "quantity": 4,
+        "note": "",
+        "page": 54,
+        "figure": 52,
+        "point": [
+          428,
+          448
+        ]
+      },
+      {
+        "position": 22,
+        "designation": "",
+        "name": "Шайба С.6.01.019 ГОСТ 11371-78",
+        "quantity": 19,
+        "note": "",
+        "page": 54,
+        "figure": 52,
+        "point": [
+          339,
+          205
+        ]
+      },
+      {
+        "position": 23,
+        "designation": "",
+        "name": "Шайба С.10.01.019 ГОСТ 11371-78",
+        "quantity": 8,
+        "note": "",
+        "page": 54,
+        "figure": 52,
+        "point": [
+          208,
+          303
+        ]
+      },
+      {
+        "position": 24,
+        "designation": "",
+        "name": "Шайба С.12.01.019 ГОСТ 11371-78",
+        "quantity": 2,
+        "note": "",
+        "page": 54,
+        "figure": 52,
+        "point": [
+          716,
+          402
+        ]
+      },
+      {
+        "position": 25,
+        "designation": "",
+        "name": "Шплинт 3,2*25.019 ГОСТ 397-79",
+        "quantity": 2,
+        "note": "",
+        "page": 54,
+        "figure": 52,
+        "point": [
+          759,
+          405
+        ]
+      },
+      {
+        "position": 26,
+        "designation": "",
+        "name": "Ось 2-12h11х75.35.Ц9Хр ГОСТ 9650-80",
+        "quantity": 1,
+        "note": "",
+        "page": 54,
+        "figure": 52,
+        "point": [
+          693,
+          420
+        ]
+      },
+      {
+        "position": 27,
+        "designation": "",
+        "name": "Маскирующая коническая заглушка EP 5.5",
+        "quantity": 1,
+        "note": "Доп. замена на Заглушка полиуретановая Д28хД24 L=26 мм СКУ 7Л",
+        "page": 54,
+        "figure": 52,
+        "point": [
+          516,
+          472
+        ]
+      }
+    ]
+  }
+]
