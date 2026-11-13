@@ -1,7 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import './stand.css';
 import './machine.css';
-import catalog from './catalog.json';
+import defaultCatalog from './catalog.json';
 import { adjustments } from './wizard.js';
 import { partGroups, partAt, partTitle, partSearchText, normalizeParts, renderParts, renderPartCard, renderFigureZoom } from './parts.js';
 import './parts.css';
@@ -10,6 +10,8 @@ import { renderGeneratedParts, renderGeneratedPart, generatedPartAt } from './ge
 import './guides.css';
 
 import machinePhoto from './kolibri-grn471.jpg';
+
+const catalog = window.__KOLIBRI_CATALOG__ || defaultCatalog;
 
 const mediaAssets = import.meta.glob('./media/*.{png,jpg,jpeg,webp,svg}', { eager: true, query: '?inline', import: 'default' });
 
@@ -61,8 +63,10 @@ function findMachine(id = ui.machineId) {
   return machineList().find(machine => String(machine.id) === String(id)) ?? null;
 }
 function mediaFor(key) {
-  const filename = findMachine()?.media?.[key];
-  return typeof filename === 'string' ? mediaAssets[`./media/${filename}`] || null : null;
+  const value = findMachine()?.media?.[key];
+  if (typeof value === 'string' && value.startsWith('data:')) return value;
+  if (typeof value === 'string') return mediaAssets[`./media/${value}`] || null;
+  return null;
 }
 function currentAdjustments() { return findMachine()?.adjustments || (findMachine()?.generated ? [] : adjustments); }
 function currentPartAt(group, position) { return findMachine()?.generated ? generatedPartAt(findMachine(), group, position) : partAt(group, position); }
@@ -304,7 +308,7 @@ function closeModal() {
 }
 function openPhoto() {
   const modal = $('#modal');
-  $('#sheet').innerHTML = `<h3>${escapeHtml(findMachine()?.model || 'Машина')}</h3><img src="${escapeHtml(mediaFor('photo') || machinePhoto)}" alt="${escapeHtml(findMachine()?.model || 'Машина')}"><button class="btn ghost" data-action="close-modal">Закрыть</button>`;
+  $('#sheet').innerHTML = `<h3>${escapeHtml(findMachine()?.model || 'Машина')}</h3><img src="${escapeHtml(mediaFor('photo') || (findMachine()?.generated ? '' : machinePhoto))}" alt="${escapeHtml(findMachine()?.model || 'Машина')}"><button class="btn ghost" data-action="close-modal">Закрыть</button>`;
   modal.classList.add('show');
   modal.setAttribute('aria-hidden', 'false');
   $('[data-action="close-modal"]').focus();

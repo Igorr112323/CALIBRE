@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
+const defaultCatalog = JSON.parse(await readFile(path.resolve(root, '../web/app/catalog.json'), 'utf8'));
 const assetsDir = path.join(root, 'www', 'assets');
 const files = await readdir(assetsDir);
 const findAsset = (prefix, suffix) => {
@@ -19,10 +20,12 @@ const photoReference = 'new URL(`' + photo + '`,import.meta.url).href';
 if (!js.includes(photoReference)) throw new Error('Photo asset reference not found in the built application');
 js = js.replace(photoReference, JSON.stringify(await dataUrl(photo, 'image/jpeg')));
 if (js.includes('import.meta') || js.toLowerCase().includes('</script')) throw new Error('The built script cannot be embedded safely');
+const runtimeTag = /<script src="\.\/runtime-catalog\.js"><\/script>/;
 const scriptTag = /<script type="module" crossorigin src="[^"]+"><\/script>/;
 const styleTag = /<link rel="stylesheet" crossorigin href="[^"]+">/;
 if (!scriptTag.test(html) || !styleTag.test(html)) throw new Error('Built HTML has an unexpected format');
-html = html.replace(scriptTag, '').replace(styleTag, () => `<style>${css}</style>`);
+const safeCatalog = JSON.stringify(defaultCatalog).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+html = html.replace(runtimeTag, `<script>window.__KOLIBRI_CATALOG__=${safeCatalog};<` + '/script>').replace(scriptTag, '').replace(styleTag, () => `<style>${css}</style>`);
 for (const [prefix, suffix, type] of [['kolibri-intro-poster-', '.png', 'image/png'], ['kolibri-intro-', '.mp4', 'video/mp4'], ['kolibri-mark-', '.png', 'image/png']]) {
   const name = findAsset(prefix, suffix);
   const reference = `./assets/${name}`;
