@@ -4,12 +4,6 @@
       "id": "grn471",
       "model": "ГРН-471 Kolibri",
       "machine_type": "Роторные грабли",
-      "quick_facts": [
-        "4,7 м",
-        "ВОМ 540",
-        "11 граблин",
-        "690 кг"
-      ],
       "sections": [
         {
           "id": "adjustments",

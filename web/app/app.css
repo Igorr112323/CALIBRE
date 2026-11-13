@@ -19,7 +19,7 @@ main{padding:8px 19px 18px;background:#f7f8f1}
 .machine-card{position:relative;display:block;min-height:142px;overflow:hidden;padding:20px;border:0;border-radius:27px;cursor:pointer;box-shadow:none}
 .machine-card.card-tone-0{background:#dfedcf}
 .machine-card.card-tone-1{background:#e9eee3}
-.machine-card h3{position:relative;z-index:1;margin:0;font-size:20px;line-height:1.2;font-weight:700;letter-spacing:-.35px}.machine-card p{position:relative;z-index:1;margin:6px 0 0;font-size:13px;color:#465448}.machine-overview{background:#e9eee3;border-radius:20px;padding:17px;margin:0 0 12px}.machine-overview h3{font-size:16px;margin:0 0 5px}.machine-overview p{font-size:12px;line-height:1.4;color:#596159;margin:0 0 12px}.overview-tags{display:flex;flex-wrap:wrap;gap:7px}.overview-tags span{background:#fff;border-radius:18px;padding:7px 10px;font-size:11px;color:#345f38}
+.machine-card h3{position:relative;z-index:1;margin:0;font-size:20px;line-height:1.2;font-weight:700;letter-spacing:-.35px}.machine-card p{position:relative;z-index:1;margin:6px 0 0;font-size:13px;color:#465448}
 .machine-open{position:absolute;z-index:2;left:20px;bottom:17px;width:42px;height:42px;display:grid;place-items:center;border-radius:50%;background:#32713a;color:white}
 .machine-open svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .tractor-art{position:absolute;right:-5px;bottom:1px;width:54%;height:112px;overflow:visible}
