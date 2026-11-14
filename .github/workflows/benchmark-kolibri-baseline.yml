@@ -1,0 +1,139 @@
+name: Examine untrained Qwen2.5 3B baseline
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - arena/0d487d0e-calibre
+    paths:
+      - '.github/workflows/benchmark-kolibri-baseline.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kolibri-qwen-baseline-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  baseline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      HF_HUB_DISABLE_XET: '1'
+      OMP_NUM_THREADS: '4'
+      MKL_NUM_THREADS: '4'
+      TOKENIZERS_PARALLELISM: 'false'
+    steps:
+      - name: Check out current commit
+        uses: actions/checkout@v5
+      - name: Initialize work paths
+        run: |
+          echo "HF_HOME=$RUNNER_TEMP/kolibri-huggingface" >> "$GITHUB_ENV"
+          echo "KOLIBRI_BASE_WORK=$RUNNER_TEMP/kolibri-baseline" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/kolibri-baseline"
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Check resources and enable swap
+        run: |
+          set -eu
+          df -h
+          free -h
+          sudo fallocate -l 8G /mnt/kolibri-baseline.swap
+          sudo chmod 600 /mnt/kolibri-baseline.swap
+          sudo mkswap /mnt/kolibri-baseline.swap
+          sudo swapon /mnt/kolibri-baseline.swap
+      - name: Install identical evaluation dependencies
+        run: |
+          python -m pip install --no-cache-dir 'torch==2.6.0+cpu' --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+          python -m pip install --no-cache-dir -r python_studio/training/requirements-training.txt
+      - name: Build the same pinned llama.cpp
+        run: |
+          git clone --depth 1 --branch b7571 https://github.com/ggml-org/llama.cpp.git "$RUNNER_TEMP/llama.cpp"
+          test "$(git -C "$RUNNER_TEMP/llama.cpp" rev-parse HEAD)" = 2a85f720b8aa87488468024c0112542b7b742a0b
+          cmake -S "$RUNNER_TEMP/llama.cpp" -B "$RUNNER_TEMP/llama-build" -DGGML_NATIVE=ON -DLLAMA_CURL=OFF -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/llama-build" --target llama-quantize llama-server -j 4
+      - name: Download pinned untrained Qwen weights and audit ChatML
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          from huggingface_hub import snapshot_download
+
+          sys.path.insert(0, 'python_studio/training')
+          from train_kolibri_gguf import BASE_MODEL, BASE_REVISION, sha256_file
+          root = Path(os.environ['KOLIBRI_BASE_WORK'])
+          directory = root / 'base-weights'
+          snapshot_download(BASE_MODEL, revision=BASE_REVISION, local_dir=directory,
+                            allow_patterns=['*.safetensors', '*.json', '*.txt', '*.model'])
+          config = json.loads((directory / 'config.json').read_text(encoding='utf-8'))
+          if config.get('model_type') != 'qwen2' or config.get('num_hidden_layers') != 36 or config.get('hidden_size') != 2048:
+              raise ValueError('Загружен не исходный Qwen2.5-3B.')
+          weights = sorted(directory.glob('*.safetensors'))
+          if not weights:
+              raise ValueError('Не найдены исходные веса модели.')
+          template = json.loads((directory / 'tokenizer_config.json').read_text(encoding='utf-8'))['chat_template']
+          info = {'model': BASE_MODEL, 'revision': BASE_REVISION,
+                  'weight_files': [{'name': path.name, 'bytes': path.stat().st_size, 'sha256': sha256_file(path)} for path in weights],
+                  'chat_template_sha256': hashlib.sha256(template.encode('utf-8')).hexdigest(),
+                  'note': 'Исходные веса, без адаптера и обучения.'}
+          (root / 'source-manifest.json').write_text(json.dumps(info, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(info, ensure_ascii=False, indent=2))
+          PY
+      - name: Convert untrained weights to BF16 GGUF
+        run: |
+          python "$RUNNER_TEMP/llama.cpp/convert_hf_to_gguf.py" "$KOLIBRI_BASE_WORK/base-weights" --outtype bf16 --outfile "$KOLIBRI_BASE_WORK/base-bf16.gguf"
+          rm -rf "$KOLIBRI_BASE_WORK/base-weights" "$HF_HOME/hub/models--Qwen--Qwen2.5-3B-Instruct"
+          df -h
+      - name: Examine clean Q3 K M
+        continue-on-error: true
+        run: |
+          python -u .github/scripts/benchmark_kolibri_baseline.py --source-gguf "$KOLIBRI_BASE_WORK/base-bf16.gguf" --source-manifest "$KOLIBRI_BASE_WORK/source-manifest.json" --quantize "$RUNNER_TEMP/llama-build/bin/llama-quantize" --server "$RUNNER_TEMP/llama-build/bin/llama-server" --output "$KOLIBRI_BASE_WORK/Q3_K_M" --quantization Q3_K_M --threads 4
+      - name: Examine clean Q4 K S
+        continue-on-error: true
+        run: |
+          python -u .github/scripts/benchmark_kolibri_baseline.py --source-gguf "$KOLIBRI_BASE_WORK/base-bf16.gguf" --source-manifest "$KOLIBRI_BASE_WORK/source-manifest.json" --quantize "$RUNNER_TEMP/llama-build/bin/llama-quantize" --server "$RUNNER_TEMP/llama-build/bin/llama-server" --output "$KOLIBRI_BASE_WORK/Q4_K_S" --quantization Q4_K_S --threads 4
+      - name: Examine clean Q4 K M for the earlier run
+        continue-on-error: true
+        run: |
+          python -u .github/scripts/benchmark_kolibri_baseline.py --source-gguf "$KOLIBRI_BASE_WORK/base-bf16.gguf" --source-manifest "$KOLIBRI_BASE_WORK/source-manifest.json" --quantize "$RUNNER_TEMP/llama-build/bin/llama-quantize" --server "$RUNNER_TEMP/llama-build/bin/llama-server" --output "$KOLIBRI_BASE_WORK/Q4_K_M" --quantization Q4_K_M --threads 4
+      - name: Verify that all baseline examinations completed
+        if: ${{ !cancelled() }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ['KOLIBRI_BASE_WORK'])
+          result = {}
+          for quantization in ('Q3_K_M', 'Q4_K_S', 'Q4_K_M'):
+              path = root / quantization / 'baseline-summary.json'
+              if not path.is_file():
+                  result[quantization] = {'complete': False, 'error': 'Отчёт не создан.'}
+                  continue
+              item = json.loads(path.read_text(encoding='utf-8'))
+              result[quantization] = {'complete': item['complete'], 'untrained_baseline': item['provenance']['untrained_baseline'],
+                                      'bytes': item['provenance']['model_bytes'],
+                                      'original': item['original_exam']['passed'], 'original_total': item['original_exam']['total'],
+                                      'extra': item['additional_exam']['passed'], 'extra_total': item['additional_exam']['total']}
+          (root / 'baseline-comparison.json').write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(result, ensure_ascii=False, indent=2))
+          if not all(value.get('complete') and value.get('untrained_baseline') for value in result.values()):
+              raise SystemExit('Не все экзамены базовой модели завершены.')
+          PY
+      - name: Upload baseline diagnostics without model weights
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: kolibri-qwen-base-diagnostics
+          path: |
+            ${{ runner.temp }}/kolibri-baseline/**/*.json
+            ${{ runner.temp }}/kolibri-baseline/**/*.log
+          if-no-files-found: warn
+          retention-days: 30
