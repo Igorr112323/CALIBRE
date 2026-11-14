@@ -28,6 +28,11 @@ jobs:
     steps:
       - name: Check out current commit
         uses: actions/checkout@v5
+      - name: Initialize work paths
+        run: |
+          echo "HF_HOME=$RUNNER_TEMP/kolibri-huggingface" >> "$GITHUB_ENV"
+          echo "KOLIBRI_WORK=$RUNNER_TEMP/kolibri-model-work" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/kolibri-model-work"
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -37,9 +42,7 @@ jobs:
           set -eu
           df -h
           free -h
-          echo "HF_HOME=$RUNNER_TEMP/kolibri-huggingface" >> "$GITHUB_ENV"
-          echo "KOLIBRI_WORK=$RUNNER_TEMP/kolibri-model-work" >> "$GITHUB_ENV"
-          mkdir -p "$RUNNER_TEMP/kolibri-model-work"
+          mkdir -p "$KOLIBRI_WORK"
           sudo fallocate -l 8G /mnt/kolibri-training.swap
           sudo chmod 600 /mnt/kolibri-training.swap
           sudo mkswap /mnt/kolibri-training.swap
@@ -69,30 +72,33 @@ jobs:
           python -u python_studio/training/train_kolibri_gguf.py --dataset "$RUNNER_TEMP/train.jsonl" --output "$KOLIBRI_WORK" --threads 4 --max-length 448 --target-minutes 32
           rm -rf "$HF_HOME/hub/models--Qwen--Qwen2.5-3B-Instruct"
           df -h
-      - name: Convert to BF16 GGUF and quantize Q4 K M
+      - name: Convert to BF16 GGUF and quantize Q3 K M
         run: |
-          python -u python_studio/training/train_kolibri_gguf.py --convert-only --output "$KOLIBRI_WORK" --llama-source "$RUNNER_TEMP/llama.cpp" --quantize "$RUNNER_TEMP/llama-build/bin/llama-quantize" --threads 4
+          python -u python_studio/training/train_kolibri_gguf.py --convert-only --output "$KOLIBRI_WORK" --llama-source "$RUNNER_TEMP/llama.cpp" --quantize "$RUNNER_TEMP/llama-build/bin/llama-quantize" --quantization Q3_K_M --keep-bf16 --threads 4
           rm -rf "$KOLIBRI_WORK/merged" "$KOLIBRI_WORK/adapter"
           df -h
-      - name: Examine the actual quantized model
+      - name: Build optional Q4 K S alternative
         run: |
           set -eu
-          "$RUNNER_TEMP/llama-build/bin/llama-server" --model "$KOLIBRI_WORK/kolibri-qwen2.5-mehfak.gguf" --alias kolibri-qwen2.5-mehfak.gguf --host 127.0.0.1 --port 18951 --ctx-size 8192 --threads 4 --parallel 1 --jinja -ngl 0 > "$KOLIBRI_WORK/llama-server.log" 2>&1 &
-          server_pid=$!
-          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
-          ready=0
-          for attempt in $(seq 1 180); do
-            if curl --silent --fail http://127.0.0.1:18951/health > /dev/null; then ready=1; break; fi
-            if ! kill -0 "$server_pid" 2>/dev/null; then tail -100 "$KOLIBRI_WORK/llama-server.log"; exit 1; fi
-            sleep 2
-          done
-          if [ "$ready" != 1 ]; then tail -100 "$KOLIBRI_WORK/llama-server.log"; exit 1; fi
-          python -u python_studio/training/evaluate_finetuned.py --port 18951 --model-file "$KOLIBRI_WORK/kolibri-qwen2.5-mehfak.gguf" --expected-server-id kolibri-qwen2.5-mehfak.gguf --out "$KOLIBRI_WORK/AI_EVALUATION_QWEN25_3B_FINETUNED.json"
+          candidate="$KOLIBRI_WORK/candidate-Q4_K_S"
+          mkdir -p "$candidate"
+          cp "$KOLIBRI_WORK/training-metrics.json" "$candidate/training-metrics.json"
+          if python -u python_studio/training/train_kolibri_gguf.py --quantize-only --source-gguf "$KOLIBRI_WORK/merged-bf16.gguf" --output "$candidate" --quantize "$RUNNER_TEMP/llama-build/bin/llama-quantize" --quantization Q4_K_S --threads 4; then
+            echo 'Optional Q4_K_S conversion completed.'
+          else
+            rm -f "$candidate/kolibri-qwen2.5-mehfak.gguf" "$candidate/gguf-metrics.json"
+            printf '%s\n' '{"error":"Q4_K_S conversion failed; the primary Q3_K_M remains eligible."}' > "$candidate/quantize-error.json"
+          fi
+          rm -f "$KOLIBRI_WORK/merged-bf16.gguf"
+          df -h
+      - name: Examine the actual quantized models
+        run: |
+          python -u python_studio/training/evaluate_candidates.py --output "$KOLIBRI_WORK" --secondary-output "$KOLIBRI_WORK/candidate-Q4_K_S" --server "$RUNNER_TEMP/llama-build/bin/llama-server" --threads 4
       - name: Check model, training, size and examination gates
         id: gate
-        continue-on-error: true
+        if: ${{ !cancelled() }}
         run: |
-          python python_studio/training/verify_release.py --output "$KOLIBRI_WORK" --dataset "$RUNNER_TEMP/train.jsonl" --manifest "$RUNNER_TEMP/dataset-manifest.json" --report "$KOLIBRI_WORK/AI_EVALUATION_QWEN25_3B_FINETUNED.json" --expected-server-id kolibri-qwen2.5-mehfak.gguf
+          python python_studio/training/verify_release.py --output "$KOLIBRI_WORK" --dataset "$RUNNER_TEMP/train.jsonl" --manifest "$RUNNER_TEMP/dataset-manifest.json" --report "$KOLIBRI_WORK/AI_EVALUATION_QWEN25_3B_FINETUNED.json" --expected-server-id kolibri-qwen2.5-mehfak.gguf --secondary-output "$KOLIBRI_WORK/candidate-Q4_K_S"
       - name: Upload actual diagnostics
         if: always()
         uses: actions/upload-artifact@v6
@@ -105,15 +111,21 @@ jobs:
             ${{ runner.temp }}/kolibri-model-work/AI_EVALUATION_QWEN25_3B_FINETUNED.json
             ${{ runner.temp }}/kolibri-model-work/release-gate.json
             ${{ runner.temp }}/kolibri-model-work/llama-server.log
+            ${{ runner.temp }}/kolibri-model-work/examination-error.json
+            ${{ runner.temp }}/kolibri-model-work/candidate-examinations.json
+            ${{ runner.temp }}/kolibri-model-work/diagnostic-Q3_K_M/*.json
+            ${{ runner.temp }}/kolibri-model-work/diagnostic-Q3_K_M/llama-server.log
+            ${{ runner.temp }}/kolibri-model-work/candidate-Q4_K_S/*.json
+            ${{ runner.temp }}/kolibri-model-work/candidate-Q4_K_S/llama-server.log
             ${{ runner.temp }}/dataset-manifest.json
           if-no-files-found: warn
           retention-days: 30
       - name: Prepare release files and mandatory Qwen notices
-        if: steps.gate.outcome == 'success'
+        if: ${{ success() && steps.gate.outcome == 'success' }}
         run: |
           python python_studio/training/prepare_release.py --output "$KOLIBRI_WORK" --license "$KOLIBRI_WORK/QWEN_LICENSE_SOURCE.txt" --manifest "$RUNNER_TEMP/dataset-manifest.json" --report "$KOLIBRI_WORK/AI_EVALUATION_QWEN25_3B_FINETUNED.json"
       - name: Publish a new release after all gates pass
-        if: steps.gate.outcome == 'success'
+        if: ${{ success() && steps.gate.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -124,8 +136,9 @@ jobs:
             exit 1
           fi
           cd "$KOLIBRI_WORK"
-          gh release create "$tag" kolibri-qwen2.5-mehfak.gguf AI_EVALUATION_QWEN25_3B_FINETUNED.json SHA256SUMS.txt training-metrics.json dataset-manifest.json QWEN_LICENSE.txt NOTICE.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --title 'Kolibri Qwen2.5-3B Мехфак — исследовательская модель' --notes 'Improved using Qwen. Изменённая модель: LoRA-дообучение по РЭ ГРН-471 и квантование Q4_K_M. Qwen Research License разрешает стандартное использование только для некоммерческих исследований и оценки; см. QWEN_LICENSE.txt и NOTICE.txt. Автоматический экзамен не гарантирует безопасность: сверяйте ответы с РЭ.'
+          sha256sum -c SHA256SUMS.txt
+          test "$(stat -c '%s' kolibri-qwen2.5-mehfak.gguf)" -lt 1950000000
+          quantization=$(python -c "import json; print(json.load(open('release-gate.json'))['selected_quantization'])")
+          case "$quantization" in Q3_K_M|Q4_K_S) ;; *) exit 1 ;; esac
+          gh release create "$tag" kolibri-qwen2.5-mehfak.gguf AI_EVALUATION_QWEN25_3B_FINETUNED.json SHA256SUMS.txt training-metrics.json dataset-manifest.json gguf-metrics.json release-gate.json QWEN_LICENSE.txt NOTICE.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --title 'Kolibri Qwen2.5-3B Мехфак — исследовательская модель' --notes "Improved using Qwen. Изменённая модель: LoRA-дообучение по РЭ ГРН-471 и квантование $quantization. Qwen Research License разрешает стандартное использование только для некоммерческих исследований и оценки; см. QWEN_LICENSE.txt и NOTICE.txt. Автоматический экзамен не гарантирует безопасность: сверяйте ответы с РЭ."
           gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
-      - name: Fail the job when publication gates do not pass
-        if: steps.gate.outcome == 'failure'
-        run: exit 1

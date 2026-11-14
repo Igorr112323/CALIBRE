@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TARGET_MODULES = ['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj']
 MAX_MODEL_BYTES = 1_950_000_000
 MODEL_NAME = 'kolibri-qwen2.5-mehfak.gguf'
+QUANTIZATION_FILE_TYPES = {'Q3_K_M': 12, 'Q4_K_S': 14}
 
 
 def sha256_file(path):
@@ -52,14 +53,17 @@ def interleave(examples, seed):
     for bucket in buckets.values():
         rng.shuffle(bucket)
     queues = {key: deque(values) for key, values in buckets.items()}
-    ordered = []
-    while queues:
-        keys = sorted(queues)
-        rng.shuffle(keys)
-        for key in keys:
-            ordered.append(queues[key].popleft())
-            if not queues[key]:
-                del queues[key]
+    keys = sorted(queues)
+    rng.shuffle(keys)
+    ordered = [queues[key].popleft() for key in keys]
+    remainder = []
+    for key in sorted(queues):
+        queue = queues[key]
+        count = len(queue)
+        for index, example in enumerate(queue):
+            remainder.append(((index + rng.random()) / count, rng.random(), example))
+    remainder.sort(key=lambda item: (item[0], item[1]))
+    ordered.extend(item[2] for item in remainder)
     return ordered
 
 
@@ -214,6 +218,7 @@ def train(args):
         'full_pass': steps >= len(rows), 'max_length': args.max_length, 'actual_max_length': max(lengths),
         'threads': args.threads, 'dtype': 'bfloat16', 'device': 'cpu', 'target_minutes': args.target_minutes,
         'training_seconds': round(elapsed, 3), 'first_three_step_seconds': durations[:3],
+        'final_step_loss': losses[-1], 'learning_rate': args.learning_rate,
         'layers_total': layer_count, 'lora_layers': selected_layers, 'lora_rank': 16, 'lora_alpha': 32,
         'lora_targets': TARGET_MODULES, 'trainable_parameters': trainable_parameters, 'total_parameters': total_parameters,
         'lora_b_norm_before': norm_before, 'lora_b_norm_after': norm_after,
@@ -233,14 +238,37 @@ def train(args):
     emit('saved', adapter=str(args.output / 'adapter'), merged=str(args.output / 'merged'))
 
 
+def quantize_gguf(source, output, executable, quantization, threads):
+    if quantization not in QUANTIZATION_FILE_TYPES or not source.is_file() or not executable.is_file():
+        raise ValueError('Не найдены исходный GGUF, квантователь или поддерживаемый тип квантования.')
+    with source.open('rb') as handle:
+        if handle.read(4) != b'GGUF':
+            raise ValueError('Исходный файл не является GGUF.')
+    output.mkdir(parents=True, exist_ok=True)
+    result = output / MODEL_NAME
+    metrics_path = output / 'gguf-metrics.json'
+    if result.exists() or metrics_path.exists():
+        raise ValueError('Файл модели или её метрики уже существуют; используйте чистый каталог.')
+    emit('quantize_start', input_bytes=source.stat().st_size, quantization=quantization)
+    subprocess.run([str(executable), str(source), str(result), quantization, str(threads)], check=True)
+    with result.open('rb') as handle:
+        if handle.read(4) != b'GGUF':
+            raise ValueError('Квантователь не создал GGUF.')
+    info = {'model_file': MODEL_NAME, 'quantization': quantization, 'bytes': result.stat().st_size,
+            'sha256': sha256_file(result), 'limit_bytes_exclusive': MAX_MODEL_BYTES,
+            'under_size_limit': result.stat().st_size < MAX_MODEL_BYTES}
+    metrics_path.write_text(json.dumps(info, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    emit('quantized', **info)
+    return info
+
+
 def convert(args):
     converter = args.llama_source / 'convert_hf_to_gguf.py'
     merged = args.output / 'merged'
     if not converter.is_file() or not args.quantize.is_file() or not (merged / 'config.json').is_file():
         raise ValueError('Не найдены конвертер, llama-quantize или объединённая модель.')
     bf16 = args.output / 'merged-bf16.gguf'
-    result = args.output / MODEL_NAME
-    if bf16.exists() or result.exists():
+    if bf16.exists() or (args.output / MODEL_NAME).exists() or (args.output / 'gguf-metrics.json').exists():
         raise ValueError('Файлы GGUF уже существуют; используйте чистый каталог вывода.')
     metrics = json.loads((args.output / 'training-metrics.json').read_text(encoding='utf-8'))
     is_qwen3b = metrics.get('base_model') == BASE_MODEL and metrics.get('revision') == BASE_REVISION
@@ -258,18 +286,9 @@ def convert(args):
     with bf16.open('rb') as handle:
         if handle.read(4) != b'GGUF':
             raise ValueError('Конвертер не создал GGUF.')
-    emit('quantize_start', input_bytes=bf16.stat().st_size, quantization='Q4_K_M')
-    subprocess.run([str(args.quantize), str(bf16), str(result), 'Q4_K_M', str(args.threads)], check=True)
-    with result.open('rb') as handle:
-        if handle.read(4) != b'GGUF':
-            raise ValueError('Квантователь не создал GGUF.')
-    info = {'model_file': MODEL_NAME, 'quantization': 'Q4_K_M', 'bytes': result.stat().st_size,
-            'sha256': sha256_file(result), 'limit_bytes_exclusive': MAX_MODEL_BYTES,
-            'under_size_limit': result.stat().st_size < MAX_MODEL_BYTES}
-    (args.output / 'gguf-metrics.json').write_text(json.dumps(info, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    quantize_gguf(bf16, args.output, args.quantize, args.quantization, args.threads)
     if not args.keep_bf16:
         bf16.unlink()
-    emit('quantized', **info)
 
 
 def main():
@@ -283,19 +302,27 @@ def main():
     parser.add_argument('--target-minutes', type=float, default=32)
     parser.add_argument('--max-epochs', type=int, default=2)
     parser.add_argument('--max-steps', type=int, default=0)
-    parser.add_argument('--learning-rate', type=float, default=0.0002)
+    parser.add_argument('--learning-rate', type=float, default=0.0001)
     parser.add_argument('--seed', type=int, default=471)
-    parser.add_argument('--convert-only', action='store_true')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--convert-only', action='store_true')
+    mode.add_argument('--quantize-only', action='store_true')
     parser.add_argument('--llama-source', type=Path)
     parser.add_argument('--quantize', type=Path)
+    parser.add_argument('--source-gguf', type=Path)
+    parser.add_argument('--quantization', choices=tuple(QUANTIZATION_FILE_TYPES), default='Q3_K_M')
     parser.add_argument('--keep-bf16', action='store_true')
     args = parser.parse_args()
-    if args.threads < 1 or args.max_length < 32 or args.target_minutes <= 0 or args.max_epochs < 1 or args.max_steps < 0:
+    if args.threads < 1 or args.max_length < 32 or args.target_minutes <= 0 or args.max_epochs < 1 or args.max_steps < 0 or args.learning_rate <= 0:
         parser.error('Некорректные параметры обучения.')
     if args.convert_only:
         if not args.llama_source or not args.quantize:
             parser.error('Для конвертации нужны --llama-source и --quantize.')
         convert(args)
+    elif args.quantize_only:
+        if not args.source_gguf or not args.quantize:
+            parser.error('Для квантования нужны --source-gguf и --quantize.')
+        quantize_gguf(args.source_gguf, args.output, args.quantize, args.quantization, args.threads)
     else:
         train(args)
 

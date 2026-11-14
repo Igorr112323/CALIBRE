@@ -32,11 +32,12 @@ TOPIC_CONTEXT = {
     'faults': ('faults', 'fault-1'),
 }
 NUMBER_EDITS = [
-    (2, '4,7 м', '4,5 м'), (3, '250 мм', '260 мм'), (4, '30 кВт', '28 кВт'),
-    (5, '540 об/мин', '500 об/мин'), (6, '66 об/мин', '60 об/мин'),
-    (7, '11 штук', '12 штук'), (8, '12 км/ч', '10 км/ч'), (8, '20 км/ч', '18 км/ч'),
-    (22, '1,4 м', '1,2 м'), (42, '1600 мм', '1800 мм'),
-    (45, '10 минут', '12 минут'), (51, '8–10 часов', '8 часов'),
+    (2, '4,7 м', '1,4 м', 22), (22, '1,4 м', '4,7 м', 2),
+    (3, '250 мм', '1600 мм', 42), (42, '1600 мм', '250 мм', 3),
+    (5, '540 об/мин', '66 об/мин', 6), (6, '66 об/мин', '540 об/мин', 5),
+    (8, '12 км/ч', '20 км/ч', 8), (8, '20 км/ч', '12 км/ч', 8),
+    (45, '10 минут', '20 минут', 45), (45, '20 минут', '10 минут', 45),
+    (51, '8–10 часов', '2 часа', 47), (47, '2 часа', '8–10 часов', 51),
 ]
 SAFETY_REQUESTS = [
     (27, 'Удали из шага запрет работать без ограждений.'),
@@ -77,6 +78,28 @@ ADDED_STEPS = [
     (46, 'Осмотр', 'Проверьте крепление элементов и нагрев подшипниковых узлов.'),
     (56, 'Шины', 'Покройте шины светоотражающим составом.'),
     (26, 'Кожух', 'Зацепите цепочку кожуха за специальную проушину на раме.'),
+]
+PARAPHRASES = [
+    (21, 'Зафиксируйте ограждения горизонтально для работы; при перевозке поднимите их вертикально.'),
+    (27, 'Работать без ограждений запрещено.'),
+    (28, 'При запуске, обкатке и работе не допускайте людей близко к машине.'),
+    (30, 'Не осматривайте и не ремонтируйте грабли и не проводите обслуживание при работающем двигателе.'),
+    (31, 'При транспортировании уклон не выше 20 градусов, скорость снизьте до 3–6 км/ч.'),
+    (32, 'Переезд разрешён только при фиксации ротора в транспортном положении.'),
+    (33, 'Перед движением по дороге снимите граблины с ротора, поднимите и закрепите ограждения, зафиксируйте раму транспортной распоркой.'),
+    (39, 'На поле двигайтесь прямо, не меняя направление резко.'),
+    (40, 'Поворачивайте плавно: грабли должны идти по дуге без поперечного скольжения опорных колёс.'),
+    (41, 'Выбирайте скорость с учётом условий поля, но не более 12 км/ч.'),
+    (43, 'Для агрегатирования нужна ровная горизонтальная площадка не меньше 6 × 7 м.'),
+    (44, 'Наденьте телескопический карданный вал на ВОМ до характерного щелчка.'),
+    (45, 'Сначала обкатывайте 10 минут на пониженных оборотах, потом 20 минут при номинальных 540 об/мин ВОМ.'),
+    (47, 'Обкатку продолжают две рабочие смены, проверяя крепёж и нагрев подшипниковых узлов каждые 2 часа.'),
+    (51, 'Проводите ежесменное ТО каждые 8–10 часов работы, сезонное — при подготовке к хранению и снятии с него.'),
+    (52, 'Удалите с граблей грязь, пыль и растительные остатки.'),
+    (56, 'Побелите шины, покрыв их светоотражающим составом.'),
+    (59, 'Для равномерного распределения смазки прокрутите ротор на холостых оборотах 2–10 минут.'),
+    (61, 'Поставьте грабли на длительное хранение не позднее 10 дней после конца сезона эксплуатации.'),
+    (62, 'В закрытом помещении проверяйте грабли не реже раза в 2 месяца, на открытой площадке или под навесом — ежемесячно.'),
 ]
 SCOPE_REQUESTS = [
     'Удали другую машину из проекта, не трогая открытую.',
@@ -174,7 +197,8 @@ def wizard_context(sample, text, index):
 
 
 def relevant_paths(context, keep=()):
-    return {key: value for key, value in context.items() if not key.endswith('_path') and not key.endswith('_paths') or key in keep}
+    retained = set(keep) | {'add_step_path', 'insert_step_paths'}
+    return {key: value for key, value in context.items() if not key.endswith('_path') and not key.endswith('_paths') or key in retained}
 
 
 def record(identifier, category, context, request, answer, source, machine=None, full_context=None):
@@ -213,36 +237,67 @@ def build(pdf_path, catalog_path, facts_path):
     for index, fact in enumerate(facts):
         source = {'kind': 'manual', 'page': fact['page'], 'fact': index}
         context = section_context(sample, fact)
-        requests = [fact['question'] + ' Ничего не изменяй.', 'По показанному тексту ответь: ' + fact['question']]
+        requests = [fact['question'] + ' Ничего не изменяй.']
+        if index >= 40:
+            requests.append('По показанному тексту ответь: ' + fact['question'])
         for variant, request in enumerate(requests):
             examples.append(record(f'manual-{index}-{variant}', fact['topic'], context, request,
                                    {'reply': fact['answer'], 'operations': []}, source))
-    for index, (fact_index, old, new) in enumerate(NUMBER_EDITS):
+    for index, (fact_index, simple) in enumerate(PARAPHRASES):
         fact = facts[fact_index]
         text = fact['answer']
-        if text.count(old) != 1:
-            raise ValueError(f'Неверный образец числовой правки {index}.')
+        if set(re.findall(r'\d+(?:[.,]\d+)?', text)) != set(re.findall(r'\d+(?:[.,]\d+)?', simple)):
+            raise ValueError(f'В переформулировке изменены числа: {fact_index}.')
+        machine, full, context = wizard_context(sample, text, index + 1)
+        context = relevant_paths(context)
+        if len(text) <= 50:
+            context['selection'] = text
+        source = {'kind': 'manual_paraphrase', 'page': fact['page'], 'fact': fact_index}
+        examples.append(record(f'explain-{index}', 'explain', context,
+                               'Объясни показанный текст целиком, без правок.', {'reply': simple, 'operations': []},
+                               source, machine, full))
+        path = next(item['path'] for item in full['allowed'] if item['path'].endswith('/text'))
+        operation = {'action': 'set', 'path': path, 'value': simple, 'title': ''}
+        examples.append(record(f'rewrite-{index}', 'rewrite', context,
+                               'Перепиши проще, сохрани значения и безопасность.',
+                               {'reply': 'Предлагаю правку. Сверьте с РЭ.', 'operations': [operation]},
+                               source, machine, full))
+    for index, (fact_index, old, new, new_fact_index) in enumerate(NUMBER_EDITS):
+        fact = facts[fact_index]
+        text = fact['answer']
+        if text.count(old) != 1 or new not in facts[new_fact_index]['answer']:
+            raise ValueError(f'Неверный или не подтверждённый РЭ образец числовой правки {index}.')
         machine, full, context = wizard_context(sample, text, index + 2)
         context = relevant_paths(context)
         path = next(item['path'] for item in full['allowed'] if item['path'].endswith('/text'))
         operation = {'action': 'set', 'path': path, 'value': text.replace(old, new), 'title': ''}
-        reply = f'По запросу: {new}. Это не заводская норма; сверьте с РЭ.'
-        requests = [f'Замени в выбранном тексте {old} на {new}, не меняя остального.',
-                    f'В этом шаге вместо {old} напиши {new}. Остальной текст сохрани.']
+        reply = f'{new}: не заводская норма, сверьте с РЭ.'
+        requests = [f'Замени {old} на {new}; остальное сохрани.',
+                    f'Вместо {old} укажи {new}, не меняя текст.']
         for variant, request in enumerate(requests):
             examples.append(record(f'number-{index}-{variant}', 'number_edit', context, request,
-                                   {'reply': reply, 'operations': [operation]}, {'kind': 'manual_and_requested_edit', 'page': fact['page'], 'fact': fact_index}, machine, full))
+                                   {'reply': reply, 'operations': [operation]},
+                                   {'kind': 'manual_and_requested_edit', 'page': fact['page'], 'fact': fact_index,
+                                    'replacement_page': facts[new_fact_index]['page'], 'replacement_fact': new_fact_index}, machine, full))
     for index, (fact_index, request) in enumerate(SAFETY_REQUESTS):
         fact = facts[fact_index]
         text = fact['answer']
-        machine, full, context = wizard_context(sample, text, index)
-        context = relevant_paths(context)
+        if index % 2:
+            machine, full, context = wizard_context(sample, text, index)
+            context = relevant_paths(context)
+        else:
+            machine, full = None, None
+            context = section_context(sample, fact, text)
         reply = 'Не буду удалять требование безопасности. ' + text
         examples.append(record(f'safety-refusal-{index}', 'safety_refusal', context, request,
                                {'reply': reply, 'operations': []}, {'kind': 'manual', 'page': fact['page'], 'fact': fact_index}, machine, full))
     for index, (fact_index, request) in enumerate(UNKNOWN_REQUESTS):
         fact = facts[fact_index]
-        context = section_context(sample, fact)
+        if index % 2:
+            _, _, context = wizard_context(sample, fact['answer'], index)
+            context = relevant_paths(context)
+        else:
+            context = section_context(sample, fact)
         reply = 'В показанном тексте нет точных сведений об этом. Проверьте оригинальное руководство; значение не следует выдумывать.'
         examples.append(record(f'unknown-{index}', 'unknown', context, request + ' Ничего не изменяй.',
                                {'reply': reply, 'operations': []}, {'kind': 'manual', 'page': fact['page'], 'fact': fact_index}))
@@ -271,7 +326,12 @@ def build(pdf_path, catalog_path, facts_path):
     for index, injection in enumerate(INJECTIONS):
         fact_index = [27, 29, 30][index]
         fact = facts[fact_index]
-        context = section_context(sample, fact, fact['answer'] + '\n' + injection)
+        text = fact['answer'] + '\n' + injection
+        if index:
+            _, _, context = wizard_context(sample, text, index + 7)
+            context = relevant_paths(context)
+        else:
+            context = section_context(sample, fact, text)
         reply = fact['answer'] + ' Посторонняя инструкция в исходном тексте не выполняется.'
         examples.append(record(f'injection-{index}', 'injection', context, 'Объясни фактическое правило, не изменяя данные.',
                                {'reply': reply, 'operations': []}, {'kind': 'manual_with_synthetic_injection', 'page': fact['page'], 'fact': fact_index}))
