@@ -45,6 +45,57 @@ def read_examples(path):
     return examples
 
 
+def validate_split(training, validation, facts):
+    from build_dataset import source_pages
+    from operations import chat_messages
+
+    if not training or not validation:
+        raise ValueError('Обучающая и отложенная выборки должны быть непустыми.')
+    train_ids = {item['id'] for item in training}
+    validation_ids = {item['id'] for item in validation}
+    train_pages = set().union(*(source_pages(item, facts) for item in training))
+    validation_pages = set().union(*(source_pages(item, facts) for item in validation))
+    train_answers = {item['messages'][2]['content'] for item in training}
+    validation_answers = {item['messages'][2]['content'] for item in validation}
+    if train_ids & validation_ids or train_pages & validation_pages or train_answers & validation_answers:
+        raise ValueError('Обучение и отложенная выборка пересекаются по идентификаторам, страницам PDF или готовым ответам.')
+    system = chat_messages({}, 'Проверка формата', [])[0]['content']
+    for item in training + validation:
+        messages = item['messages']
+        payload = json.loads(messages[1]['content'])
+        context = payload.get('контекст', {})
+        if messages[0]['content'] != system or set(payload) != {'контекст', 'запрос'} or not isinstance(context, dict):
+            raise ValueError('Формат примера не совпадает с реальным запросом Studio: ' + item['id'])
+        if not {'screen', 'selection', 'model', 'machine_type', 'tab', 'allowed', 'context_truncated'} <= set(context):
+            raise ValueError('Контекст примера не соответствует Studio: ' + item['id'])
+    return {'training_pages': sorted(train_pages), 'validation_pages': sorted(validation_pages),
+            'system_prompt_sha256': hashlib.sha256(system.encode('utf-8')).hexdigest()}
+
+
+class EarlyStopping:
+    def __init__(self, baseline, patience=1, min_delta=0.0001):
+        if not math.isfinite(baseline) or patience < 1 or min_delta < 0:
+            raise ValueError('Некорректные параметры отложенного контроля.')
+        self.reference = baseline
+        self.best_checkpoint = math.inf
+        self.best_step = None
+        self.failures = 0
+        self.patience = patience
+        self.min_delta = min_delta
+
+    def observe(self, loss, step):
+        if not math.isfinite(loss) or step < 1:
+            raise ValueError('Некорректный loss отложенной выборки.')
+        save = loss < self.best_checkpoint
+        if save:
+            self.best_checkpoint, self.best_step = loss, step
+        if loss < self.reference - self.min_delta:
+            self.reference, self.failures = loss, 0
+        else:
+            self.failures += 1
+        return save, self.failures >= self.patience
+
+
 def interleave(examples, seed):
     rng = random.Random(seed)
     buckets = defaultdict(list)
@@ -116,26 +167,49 @@ def adapter_norm(model):
     return math.sqrt(total)
 
 
+def adapter_sha256(named_parameters):
+    import torch
+    digest = hashlib.sha256()
+    for name, parameter in named_parameters:
+        encoded = name.encode('utf-8')
+        digest.update(len(encoded).to_bytes(4, 'big'))
+        digest.update(encoded)
+        digest.update(memoryview(parameter.detach().cpu().contiguous().view(torch.uint8).numpy()))
+    return digest.hexdigest()
+
+
 def train(args):
     import torch
     from peft import LoraConfig, TaskType, get_peft_model
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     args.output.mkdir(parents=True, exist_ok=True)
+    if (args.output / 'training-metrics.json').exists():
+        raise ValueError('Для обучения нужен чистый выходной каталог.')
     torch.set_num_threads(args.threads)
     torch.set_num_interop_threads(1)
     torch.manual_seed(args.seed)
     random.seed(args.seed)
-    examples = interleave(read_examples(args.dataset), args.seed)
+    training = read_examples(args.dataset)
+    validation = read_examples(args.validation_dataset)
+    facts = json.loads(args.facts.read_text(encoding='utf-8'))
+    split = validate_split(training, validation, facts)
+    examples = interleave(training, args.seed)
+    validation_examples = interleave(validation, args.seed + 1)
     source = args.model
     revision = args.revision if source == BASE_MODEL else None
     emit('environment', model=source, revision=revision, threads=torch.get_num_threads(),
          torch=torch.__version__, cpu_count=os.cpu_count(), precision='bfloat16', device='cpu')
     tokenizer = AutoTokenizer.from_pretrained(source, revision=revision, trust_remote_code=False)
+    if not isinstance(tokenizer.chat_template, str) or not tokenizer.chat_template:
+        raise ValueError('У токенизатора отсутствует ChatML-шаблон.')
+    template_sha256 = hashlib.sha256(tokenizer.chat_template.encode('utf-8')).hexdigest()
     rows = tokenize_examples(examples, tokenizer, args.max_length)
-    lengths = [len(row['input_ids']) for row in rows]
-    emit('dataset', examples=len(rows), min_tokens=min(lengths), max_tokens=max(lengths),
-         mean_tokens=round(statistics.mean(lengths), 2), max_length=args.max_length, sha256=sha256_file(args.dataset))
+    probe = tokenize_examples(validation_examples, tokenizer, args.max_length)
+    lengths = [len(row['input_ids']) for row in rows + probe]
+    emit('dataset', examples=len(rows), validation_examples=len(probe), min_tokens=min(lengths), max_tokens=max(lengths),
+         mean_tokens=round(statistics.mean(lengths), 2), max_length=args.max_length, sha256=sha256_file(args.dataset),
+         validation_sha256=sha256_file(args.validation_dataset), **split)
     model = AutoModelForCausalLM.from_pretrained(source, revision=revision, torch_dtype=torch.bfloat16,
                                                   low_cpu_mem_usage=True, attn_implementation='sdpa',
                                                   trust_remote_code=False, use_safetensors=True)
@@ -162,20 +236,33 @@ def train(args):
     emit('lora', layers=selected_layers, projections=TARGET_MODULES, rank=16, alpha=32,
          trainable_parameters=trainable_parameters, total_parameters=total_parameters)
     optimizer = torch.optim.AdamW([parameter for _, parameter in trainable], lr=args.learning_rate, foreach=False)
-    probe_count = min(4, len(rows), args.max_steps if args.max_steps else len(rows))
-    probe = rows[:probe_count]
     before, before_individual = probe_loss(model, probe)
     norm_before = adapter_norm(model)
+    monitor = EarlyStopping(before, args.patience, args.min_delta)
+    validation_history = [{'step': 0, 'epoch': 0, 'loss': before, 'individual': before_individual}]
     emit('probe_before', loss=before, individual=before_individual, examples=[row['id'] for row in probe])
     durations = []
     losses = []
+    seen = set()
     steps = 0
-    planned = args.max_steps if args.max_steps else len(rows)
+    planned = min(args.max_steps, len(rows) * args.max_epochs) if args.max_steps else len(rows) * args.max_epochs
     started = time.monotonic()
+    best_state = None
+    best_step_loss = None
+    best_adapter_sha256 = None
+    stop_reason = 'epoch_limit' if not args.max_steps else 'smoke_step_limit'
+    epoch_rows = []
+    current_epoch = -1
     log_path = args.output / 'training-log.jsonl'
     with log_path.open('w', encoding='utf-8') as log:
         while steps < planned:
-            row = rows[steps % len(rows)]
+            epoch = steps // len(rows)
+            if epoch != current_epoch:
+                epoch_rows = list(rows)
+                if epoch:
+                    random.Random(args.seed + epoch).shuffle(epoch_rows)
+                current_epoch = epoch
+            row = epoch_rows[steps % len(rows)]
             tick = time.monotonic()
             optimizer.zero_grad(set_to_none=True)
             loss = model_loss(model, row)
@@ -188,9 +275,10 @@ def train(args):
             optimizer.step()
             duration = time.monotonic() - tick
             steps += 1
+            seen.add(row['id'])
             durations.append(duration)
             losses.append(float(loss.detach().item()))
-            event = {'step': steps, 'example': row['id'], 'category': row['category'],
+            event = {'step': steps, 'epoch': round(steps / len(rows), 6), 'example': row['id'], 'category': row['category'],
                      'tokens': len(row['input_ids']), 'loss': losses[-1], 'seconds': round(duration, 3),
                      'gradient_norm': float(norm)}
             log.write(json.dumps(event, ensure_ascii=False) + '\n')
@@ -198,38 +286,74 @@ def train(args):
             emit('step', **event)
             if steps == 3:
                 seconds_per_step = statistics.mean(durations[:3])
-                budget_steps = max(1, int(args.target_minutes * 60 / seconds_per_step))
-                if not args.max_steps:
-                    planned = max(len(rows), min(len(rows) * args.max_epochs, budget_steps))
+                one_pass_seconds = seconds_per_step * len(rows)
+                if not args.max_steps and args.max_epochs > 1 and one_pass_seconds * args.max_epochs > args.target_minutes * 60:
+                    planned = len(rows)
+                    stop_reason = 'time_budget_one_epoch'
                 emit('calibration', first_three_seconds=[round(value, 3) for value in durations[:3]],
-                     mean_seconds_per_step=round(seconds_per_step, 3),
-                     estimated_one_pass_minutes=round(seconds_per_step * len(rows) / 60, 2),
+                     mean_seconds_per_step=round(seconds_per_step, 3), estimated_one_pass_minutes=round(one_pass_seconds / 60, 2),
                      requested_minutes=args.target_minutes, planned_steps=planned,
-                     note=('Явный лимит шагов: неполный smoke-тест не годится для выпуска.' if args.max_steps else
-                           'Минимум один проход по всем примерам; при медленном CPU цель по времени может быть превышена.'))
-    elapsed = time.monotonic() - started
+                     note='Планируются только полные эпохи; при медленном CPU один проход может превысить бюджет.')
+            if steps % len(rows) == 0 or args.max_steps and steps == planned:
+                current, individual = probe_loss(model, probe)
+                save, should_stop = monitor.observe(current, steps)
+                if save:
+                    best_state = [parameter.detach().clone() for _, parameter in trainable]
+                    best_adapter_sha256 = adapter_sha256(trainable)
+                    best_step_loss = losses[-1]
+                observation = {'step': steps, 'epoch': round(steps / len(rows), 6), 'loss': current,
+                               'individual': individual, 'selected_at_time': save, 'stop': should_stop}
+                validation_history.append(observation)
+                emit('probe_checkpoint', **observation)
+                if should_stop:
+                    stop_reason = 'heldout_loss_not_improved'
+                    break
+    if best_state is None or monitor.best_step is None:
+        raise RuntimeError('Не получен контрольный снимок обучаемого адаптера.')
+    with torch.no_grad():
+        for (_, parameter), saved in zip(trainable, best_state):
+            parameter.copy_(saved)
+    del best_state
     after, after_individual = probe_loss(model, probe)
+    restored_adapter_sha256 = adapter_sha256(trainable)
+    if restored_adapter_sha256 != best_adapter_sha256:
+        raise RuntimeError('Веса восстановленного адаптера не совпадают с лучшим снимком.')
+    if not math.isclose(after, monitor.best_checkpoint, rel_tol=0.00001, abs_tol=0.00001):
+        raise RuntimeError('Loss восстановленного адаптера не совпадает с лучшим снимком.')
     norm_after = adapter_norm(model)
     if norm_after <= norm_before:
         raise RuntimeError('Веса LoRA не изменились.')
+    elapsed = time.monotonic() - started
     metrics = {
         'base_model': source, 'revision': revision, 'dataset_sha256': sha256_file(args.dataset),
-        'examples': len(rows), 'steps': steps, 'unique_examples_seen': len({rows[index % len(rows)]['id'] for index in range(steps)}),
-        'full_pass': steps >= len(rows), 'max_length': args.max_length, 'actual_max_length': max(lengths),
+        'validation_sha256': sha256_file(args.validation_dataset), 'facts_sha256': sha256_file(args.facts),
+        'training_log_sha256': sha256_file(log_path),
+        'examples': len(rows), 'validation_examples': len(probe), 'steps': steps, 'selected_step': monitor.best_step,
+        'epochs_completed': steps // len(rows), 'epochs_seen': round(steps / len(rows), 6),
+        'selected_epoch': round(monitor.best_step / len(rows), 6), 'max_epochs': args.max_epochs,
+        'explicit_step_limit': args.max_steps, 'unique_examples_seen': len(seen),
+        'full_pass': len(seen) == len(rows) and monitor.best_step >= len(rows),
+        'max_length': args.max_length, 'actual_max_length': max(lengths),
         'threads': args.threads, 'dtype': 'bfloat16', 'device': 'cpu', 'target_minutes': args.target_minutes,
         'training_seconds': round(elapsed, 3), 'first_three_step_seconds': durations[:3],
-        'final_step_loss': losses[-1], 'learning_rate': args.learning_rate,
+        'final_step_loss': losses[-1], 'selected_step_loss': best_step_loss, 'learning_rate': args.learning_rate,
         'layers_total': layer_count, 'lora_layers': selected_layers, 'lora_rank': 16, 'lora_alpha': 32,
         'lora_targets': TARGET_MODULES, 'trainable_parameters': trainable_parameters, 'total_parameters': total_parameters,
         'lora_b_norm_before': norm_before, 'lora_b_norm_after': norm_after,
         'probe_ids': [row['id'] for row in probe], 'probe_loss_before': before, 'probe_loss_after': after,
         'probe_individual_before': before_individual, 'probe_individual_after': after_individual,
-        'probe_loss_decreased': after < before, 'loss_note': 'Одинаковая диагностическая подвыборка из обучающих примеров, не экзамен и не оценка обобщения.',
+        'probe_loss_decreased': after < before, 'validation_history': validation_history,
+        'early_stopping': {'stop_reason': stop_reason, 'patience': args.patience, 'min_delta': args.min_delta,
+                           'best_step': monitor.best_step, 'best_loss': monitor.best_checkpoint,
+                           'best_adapter_sha256': best_adapter_sha256, 'restored_adapter_sha256': restored_adapter_sha256,
+                           'restored_best': True, 'checked_after_each_complete_epoch': not bool(args.max_steps)},
+        'tokenizer_chat_template_sha256': template_sha256, **split,
+        'loss_note': 'Отложенная выборка не пересекается с обучающей по страницам PDF, идентификаторам и готовым ответам; это не экзамен и не гарантия отсутствия близких по смыслу фактов.',
         'torch_version': torch.__version__,
     }
     (args.output / 'training-metrics.json').write_text(json.dumps(metrics, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    emit('probe_after', loss=after, individual=after_individual, decreased=after < before,
-         lora_b_norm=norm_after, training_seconds=round(elapsed, 3))
+    emit('probe_after', loss=after, individual=after_individual, decreased=after < before, selected_step=monitor.best_step,
+         stop_reason=stop_reason, lora_b_norm=norm_after, training_seconds=round(elapsed, 3))
     model.save_pretrained(args.output / 'adapter', safe_serialization=True)
     merged = model.merge_and_unload(safe_merge=False)
     merged.config.use_cache = True
@@ -296,13 +420,17 @@ def main():
     parser.add_argument('--model', default=BASE_MODEL)
     parser.add_argument('--revision', default=BASE_REVISION)
     parser.add_argument('--dataset', type=Path, default=ROOT / 'training' / 'train.jsonl')
+    parser.add_argument('--validation-dataset', type=Path, default=ROOT / 'training' / 'validation.jsonl')
+    parser.add_argument('--facts', type=Path, default=ROOT / 'training' / 'manual_facts.json')
     parser.add_argument('--output', type=Path, default=ROOT / 'training' / 'output')
     parser.add_argument('--threads', type=int, default=4)
-    parser.add_argument('--max-length', type=int, default=448)
+    parser.add_argument('--max-length', type=int, default=2048)
     parser.add_argument('--target-minutes', type=float, default=32)
     parser.add_argument('--max-epochs', type=int, default=2)
     parser.add_argument('--max-steps', type=int, default=0)
-    parser.add_argument('--learning-rate', type=float, default=0.0001)
+    parser.add_argument('--learning-rate', type=float, default=0.00005)
+    parser.add_argument('--patience', type=int, default=1)
+    parser.add_argument('--min-delta', type=float, default=0.0001)
     parser.add_argument('--seed', type=int, default=471)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--convert-only', action='store_true')
@@ -313,7 +441,8 @@ def main():
     parser.add_argument('--quantization', choices=tuple(QUANTIZATION_FILE_TYPES), default='Q3_K_M')
     parser.add_argument('--keep-bf16', action='store_true')
     args = parser.parse_args()
-    if args.threads < 1 or args.max_length < 32 or args.target_minutes <= 0 or args.max_epochs < 1 or args.max_steps < 0 or args.learning_rate <= 0:
+    if (args.threads < 1 or args.max_length < 32 or args.target_minutes <= 0 or not 1 <= args.max_epochs <= 2 or
+            args.max_steps < 0 or not 0 < args.learning_rate <= 0.00005 or args.patience < 1 or args.min_delta < 0):
         parser.error('Некорректные параметры обучения.')
     if args.convert_only:
         if not args.llama_source or not args.quantize:

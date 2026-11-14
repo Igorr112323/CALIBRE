@@ -12,6 +12,9 @@ def main():
     parser.add_argument('--license', required=True, type=Path)
     parser.add_argument('--manifest', required=True, type=Path)
     parser.add_argument('--report', required=True, type=Path)
+    parser.add_argument('--dataset', type=Path, default=Path(__file__).with_name('train.jsonl'))
+    parser.add_argument('--validation-dataset', type=Path, default=Path(__file__).with_name('validation.jsonl'))
+    parser.add_argument('--facts', type=Path, default=Path(__file__).with_name('manual_facts.json'))
     args = parser.parse_args()
     model = args.output / MODEL_NAME
     if not model.is_file() or not args.license.is_file() or not args.report.is_file():
@@ -22,7 +25,9 @@ def main():
     size = model.stat().st_size
     sources = {'training': sha256_file(args.output / 'training-metrics.json'),
                'conversion': sha256_file(args.output / 'gguf-metrics.json'),
-               'exam': sha256_file(args.report), 'manifest': sha256_file(args.manifest)}
+               'exam': sha256_file(args.report), 'manifest': sha256_file(args.manifest),
+               'dataset': sha256_file(args.dataset), 'validation': sha256_file(args.validation_dataset),
+               'facts': sha256_file(args.facts), 'training_log': sha256_file(args.output / 'training-log.jsonl')}
     if (gate.get('passed') is not True or selected not in QUANTIZATION_FILE_TYPES or
             candidate.get('passed') is not True or candidate.get('model_bytes') != size or
             not 4 <= size < MAX_MODEL_BYTES or candidate.get('model_sha256') != sha256_file(model) or
@@ -37,7 +42,7 @@ def main():
     notice.write_text('Qwen is licensed under the Qwen RESEARCH LICENSE AGREEMENT, Copyright (c) Alibaba Cloud. All Rights Reserved.\n'
                       'Improved using Qwen. This model is a modified, LoRA-fine-tuned and quantized derivative of Qwen2.5-3B-Instruct.\n'
                       'The Qwen Research License limits the standard grant to non-commercial research or evaluation.\n', encoding='utf-8')
-    names = [MODEL_NAME, args.report.name, 'training-metrics.json', 'dataset-manifest.json',
+    names = [MODEL_NAME, args.report.name, 'training-metrics.json', 'training-log.jsonl', 'dataset-manifest.json',
              'gguf-metrics.json', 'release-gate.json', 'QWEN_LICENSE.txt', 'NOTICE.txt']
     paths = [args.output / name for name in names]
     if not all(path.is_file() for path in paths):

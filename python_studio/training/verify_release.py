@@ -1,9 +1,13 @@
 import argparse
+import base64
+import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import sys
+import zlib
 from pathlib import Path
 
 try:
@@ -11,7 +15,7 @@ try:
 except ImportError:
     gguf = None
 
-from train_kolibri_gguf import BASE_MODEL, BASE_REVISION, MAX_MODEL_BYTES, MODEL_NAME, QUANTIZATION_FILE_TYPES, TARGET_MODULES, sha256_file
+from train_kolibri_gguf import BASE_MODEL, BASE_REVISION, MAX_MODEL_BYTES, MODEL_NAME, QUANTIZATION_FILE_TYPES, TARGET_MODULES, EarlyStopping, read_examples, sha256_file, validate_split
 
 ORIGINAL_ORDER = ('question_only', 'exact_number_edit', 'preserve_number', 'append_step', 'unknown_torque', 'outside_scope', 'source_injection')
 EXTRA_ORDER = ('rotor_mechanism', 'carriage_purpose', 'unknown_bearing', 'unknown_absolute_gap', 'retain_safety')
@@ -83,7 +87,10 @@ def diagnostic_snapshot(output, report_path):
             'under_target': size is not None and size < TARGET_MODEL_BYTES,
             'quantization_reported': conversion.get('quantization'),
             'final_step_loss': training.get('final_step_loss'), 'probe_loss_before': training.get('probe_loss_before'),
-            'probe_loss_after': training.get('probe_loss_after'),
+            'probe_loss_after': training.get('probe_loss_after'), 'steps': training.get('steps'),
+            'epochs_completed': training.get('epochs_completed'), 'selected_step': training.get('selected_step'),
+            'learning_rate': training.get('learning_rate'), 'validation_examples': training.get('validation_examples'),
+            'early_stopping': training.get('early_stopping'),
             'original_exam': summarize_cases(report, 'cases', ORIGINAL_ORDER),
             'additional_exam': summarize_cases(report, 'additional_cases', EXTRA_ORDER),
             'source_sha256': {'training': optional_sha256(output / 'training-metrics.json'),
@@ -92,7 +99,91 @@ def diagnostic_snapshot(output, report_path):
             'input_errors': {key: error for key, error in [('training', training_error), ('conversion', conversion_error), ('exam', report_error)] if error}}
 
 
-def evaluate(output, dataset, manifest_path, report_path, expected_server_id, expected_quantization='Q3_K_M'):
+def finite_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def close_numbers(left, right):
+    return finite_number(left) and finite_number(right) and math.isclose(left, right, rel_tol=0.00001, abs_tol=0.00001)
+
+
+def valid_training_log(path, rows, training):
+    try:
+        events = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines() if line.strip()]
+        count = len(rows)
+        epochs = training.get('epochs_completed')
+        selected = training.get('selected_step')
+        expected = {item['id']: item['category'] for item in rows}
+        if (not count or epochs not in (1, 2) or len(events) != count * epochs or training.get('steps') != len(events) or
+                not isinstance(selected, int) or selected < count or selected > len(events) or
+                training.get('training_log_sha256') != sha256_file(path)):
+            return False
+        for index, item in enumerate(events):
+            identifier = item.get('example')
+            if (item.get('step') != index + 1 or identifier not in expected or item.get('category') != expected[identifier] or
+                    not close_numbers(item.get('epoch'), round((index + 1) / count, 6)) or
+                    not isinstance(item.get('tokens'), int) or not 0 < item['tokens'] <= training.get('actual_max_length', 0) or
+                    any(not finite_number(item.get(key)) or item[key] < 0 for key in ('loss', 'seconds', 'gradient_norm'))):
+                return False
+        if any({event['example'] for event in events[start:start + count]} != set(expected)
+               for start in range(0, len(events), count)):
+            return False
+        return (close_numbers(events[-1]['loss'], training.get('final_step_loss')) and
+                close_numbers(events[selected - 1]['loss'], training.get('selected_step_loss')))
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return False
+
+
+def valid_history(training, before, after):
+    history = training.get('validation_history')
+    stopping = training.get('early_stopping', {})
+    examples = training.get('examples')
+    validation_count = training.get('validation_examples')
+    epochs = training.get('epochs_completed')
+    max_epochs = training.get('max_epochs')
+    selected = training.get('selected_step')
+    if (not isinstance(examples, int) or examples < 1 or not isinstance(validation_count, int) or validation_count < 20 or
+            epochs not in (1, 2) or max_epochs not in (1, 2) or epochs > max_epochs or training.get('steps') != epochs * examples or
+            not isinstance(history, list) or len(history) != epochs + 1 or not isinstance(stopping, dict) or
+            stopping.get('patience') != 1 or not finite_number(stopping.get('min_delta')) or not 0 <= stopping['min_delta'] <= 0.001):
+        return False
+    if [entry.get('step') for entry in history if isinstance(entry, dict)] != [examples * epoch for epoch in range(epochs + 1)]:
+        return False
+    for index, entry in enumerate(history):
+        loss = entry.get('loss')
+        individual = entry.get('individual')
+        if (not finite_number(loss) or loss < 0 or not isinstance(individual, list) or len(individual) != validation_count or
+                any(not finite_number(value) or value < 0 for value in individual) or
+                not close_numbers(loss, sum(individual) / validation_count) or not close_numbers(entry.get('epoch'), index)):
+            return False
+    monitor = EarlyStopping(before, patience=1, min_delta=stopping['min_delta'])
+    for index, entry in enumerate(history[1:], 1):
+        saved, stopped = monitor.observe(entry['loss'], entry['step'])
+        if entry.get('selected_at_time') is not saved or entry.get('stop') is not stopped or stopped and index != epochs:
+            return False
+    reason = stopping.get('stop_reason')
+    if ((reason == 'heldout_loss_not_improved') != stopped or
+            reason == 'time_budget_one_epoch' and (epochs != 1 or max_epochs != 2) or
+            reason == 'epoch_limit' and epochs != max_epochs or
+            reason not in ('heldout_loss_not_improved', 'time_budget_one_epoch', 'epoch_limit')):
+        return False
+    best = next(entry for entry in history[1:] if entry['step'] == monitor.best_step)
+    before_values = training.get('probe_individual_before')
+    after_values = training.get('probe_individual_after')
+    if (not isinstance(before_values, list) or not isinstance(after_values, list) or
+            len(before_values) != validation_count or len(after_values) != validation_count or
+            any(not close_numbers(left, right) for left, right in zip(before_values, history[0]['individual'])) or
+            any(not close_numbers(left, right) for left, right in zip(after_values, best['individual']))):
+        return False
+    checkpoint = stopping.get('best_adapter_sha256')
+    return (close_numbers(history[0]['loss'], before) and close_numbers(best['loss'], after) and
+            selected == best['step'] == stopping.get('best_step') and close_numbers(stopping.get('best_loss'), after) and
+            isinstance(checkpoint, str) and re.fullmatch(r'[0-9a-f]{64}', checkpoint) is not None and
+            checkpoint == stopping.get('restored_adapter_sha256') and stopping.get('restored_best') is True and
+            stopping.get('checked_after_each_complete_epoch') is True)
+
+
+def evaluate(output, dataset, manifest_path, report_path, expected_server_id, expected_quantization='Q3_K_M', validation_path=None, training_log_path=None):
     training = json.loads((output / 'training-metrics.json').read_text(encoding='utf-8'))
     conversion = json.loads((output / 'gguf-metrics.json').read_text(encoding='utf-8'))
     report = json.loads(report_path.read_text(encoding='utf-8'))
@@ -109,6 +200,19 @@ def evaluate(output, dataset, manifest_path, report_path, expected_server_id, ex
     file_type = integer_field(reader, 'general.file_type')
     layers = integer_field(reader, 'qwen2.block_count')
     hidden = integer_field(reader, 'qwen2.embedding_length')
+    template_sha256 = hashlib.sha256(text_field(reader, 'tokenizer.chat_template').encode('utf-8')).hexdigest()
+    validation_path = validation_path or dataset.with_name('validation.jsonl')
+    training_log_path = training_log_path or output / 'training-log.jsonl'
+    facts_path = Path(__file__).with_name('manual_facts.json')
+    try:
+        training_rows = read_examples(dataset)
+        validation_rows = read_examples(validation_path)
+        facts = json.loads(facts_path.read_text(encoding='utf-8'))
+        split = validate_split(training_rows, validation_rows, facts)
+        split_error = ''
+    except Exception as error:
+        training_rows, validation_rows, split = [], [], {}
+        split_error = type(error).__name__ + ': ' + str(error)
     cases = report.get('cases', [])
     additional = report.get('additional_cases', [])
     before = training.get('probe_loss_before')
@@ -117,16 +221,31 @@ def evaluate(output, dataset, manifest_path, report_path, expected_server_id, ex
     quant_type = QUANTIZATION_FILE_TYPES.get(expected_quantization)
     checks = {
         'base_model_and_revision': training.get('base_model') == BASE_MODEL and training.get('revision') == BASE_REVISION,
-        'dataset_hash_and_count': training.get('dataset_sha256') == manifest.get('dataset_sha256') == sha256_file(dataset) and
-                                  training.get('examples') == manifest.get('examples') and 280 <= manifest.get('examples', 0) <= 350,
+        'dataset_hash_and_count': training.get('dataset_sha256') == manifest.get('dataset_sha256') == optional_sha256(dataset) and
+                                  training.get('examples') == manifest.get('examples') == len(training_rows) and 280 <= len(training_rows) <= 350,
+        'heldout_hash_and_count': training.get('validation_sha256') == manifest.get('validation_sha256') == optional_sha256(validation_path) and
+                                  training.get('validation_examples') == manifest.get('validation_examples') == len(validation_rows) and len(validation_rows) >= 20 and
+                                  training.get('facts_sha256') == manifest.get('facts_sha256') == optional_sha256(facts_path),
+        'heldout_disjoint': not split_error and split.get('training_pages') == manifest.get('training_pages') == training.get('training_pages') and
+                            split.get('validation_pages') == manifest.get('validation_pages') == training.get('validation_pages') and
+                            len(training.get('probe_ids', [])) == len(validation_rows) and
+                            set(training.get('probe_ids', [])) == {item['id'] for item in validation_rows},
+        'studio_system_prompt': not split_error and split.get('system_prompt_sha256') == manifest.get('system_prompt_sha256') == training.get('system_prompt_sha256'),
         'all_examples_seen': training.get('full_pass') is True and training.get('unique_examples_seen') == training.get('examples') and
-                             training.get('steps', 0) >= training.get('examples', sys.maxsize),
+                             training.get('steps', 0) >= training.get('examples', sys.maxsize) and
+                             training.get('selected_step', 0) >= training.get('examples', sys.maxsize) and
+                             valid_training_log(training_log_path, training_rows, training),
+        'one_or_two_epochs_and_learning_rate': training.get('max_epochs') in (1, 2) and training.get('epochs_completed') in (1, 2) and
+                                              training.get('explicit_step_limit') == 0 and
+                                              isinstance(training.get('learning_rate'), (int, float)) and 0 < training['learning_rate'] <= 0.00005,
         'cpu_bf16_four_threads': training.get('device') == 'cpu' and training.get('dtype') == 'bfloat16' and training.get('threads') == 4,
-        'sequence_limit': training.get('max_length') == 448 and training.get('actual_max_length', 449) <= 448,
+        'sequence_limit': training.get('max_length') == 2048 and training.get('actual_max_length', 2049) <= 2048,
+        'matching_chat_template': template_sha256 == training.get('tokenizer_chat_template_sha256'),
         'lora_configuration': training.get('layers_total') == 36 and training.get('lora_layers') == list(range(24, 36)) and
                               training.get('lora_rank') == 16 and training.get('lora_alpha') == 32 and training.get('lora_targets') == TARGET_MODULES,
         'actual_adapter_updates': training.get('lora_b_norm_after', 0) > training.get('lora_b_norm_before', 0),
         'probe_loss_decreased': finite_losses and after < before and training.get('probe_loss_decreased') is True,
+        'early_stopping_with_best_restore': finite_losses and valid_history(training, before, after),
         'qwen2_3b_expected_quantization': architecture == 'qwen2' and layers == 36 and hidden == 2048 and
                                          quant_type is not None and file_type == quant_type and conversion.get('quantization') == expected_quantization,
         'embedded_license_and_modification_notice': license_name == 'Qwen Research License' and
@@ -142,7 +261,11 @@ def evaluate(output, dataset, manifest_path, report_path, expected_server_id, ex
         'complete_report': report.get('all_required_cases_present') is True and report.get('all_heuristics_passed') is True,
     }
     snapshot = diagnostic_snapshot(output, report_path)
-    snapshot['source_sha256']['manifest'] = sha256_file(manifest_path)
+    snapshot['source_sha256'].update({'manifest': sha256_file(manifest_path), 'dataset': optional_sha256(dataset),
+                                      'validation': optional_sha256(validation_path), 'facts': optional_sha256(facts_path),
+                                      'training_log': optional_sha256(training_log_path)})
+    if split_error:
+        snapshot['input_errors']['heldout'] = split_error
     reasons = []
     for name, passed in checks.items():
         if not passed:
@@ -159,13 +282,13 @@ def evaluate(output, dataset, manifest_path, report_path, expected_server_id, ex
     return {'passed': all(checks.values()), 'expected_quantization': expected_quantization, 'checks': checks,
             'failure_reasons': reasons, 'model_sha256': digest, **snapshot,
             'gguf': {'architecture': architecture, 'file_type': file_type, 'layers': layers, 'hidden_size': hidden,
-                     'description': description, 'license': license_name},
+                     'description': description, 'license': license_name, 'chat_template_sha256': template_sha256},
             'note': 'Автоматические проверки не гарантируют безопасность или достоверность модели.'}
 
 
-def assess_candidate(output, dataset, manifest_path, report_path, expected_server_id, quantization):
+def assess_candidate(output, dataset, manifest_path, report_path, expected_server_id, quantization, validation_path=None, training_log_path=None):
     try:
-        return evaluate(output, dataset, manifest_path, report_path, expected_server_id, quantization)
+        return evaluate(output, dataset, manifest_path, report_path, expected_server_id, quantization, validation_path, training_log_path)
     except Exception as error:
         snapshot = diagnostic_snapshot(output, report_path)
         detail = type(error).__name__ + ': ' + str(error)
@@ -208,13 +331,14 @@ def activate_secondary(output, secondary, report_path, expected_sha):
         raise ValueError('SHA-256 выбранной модели изменился после перемещения.')
 
 
-def run_gate(output, dataset, manifest_path, report_path, expected_server_id, secondary=None):
+def run_gate(output, dataset, manifest_path, report_path, expected_server_id, secondary=None, validation_path=None):
     output.mkdir(parents=True, exist_ok=True)
-    primary = assess_candidate(output, dataset, manifest_path, report_path, expected_server_id, 'Q3_K_M')
+    training_log_path = output / 'training-log.jsonl'
+    primary = assess_candidate(output, dataset, manifest_path, report_path, expected_server_id, 'Q3_K_M', validation_path, training_log_path)
     results = {'Q3_K_M': primary}
     alternative = None
     if secondary is not None:
-        alternative = assess_candidate(secondary, dataset, manifest_path, secondary / report_path.name, expected_server_id, 'Q4_K_S')
+        alternative = assess_candidate(secondary, dataset, manifest_path, secondary / report_path.name, expected_server_id, 'Q4_K_S', validation_path, training_log_path)
         results['Q4_K_S'] = alternative
     selected = choose_candidate(primary, alternative)
     result = {'passed': False, 'selected_quantization': None, 'candidates': results,
@@ -243,22 +367,50 @@ def annotation_summary(name, candidate):
     reasons = candidate.get('failure_reasons', [])
     return {'quantization': name, 'passed': candidate.get('passed', False), 'bytes': candidate.get('model_bytes'),
             'limit_bytes_exclusive': MAX_MODEL_BYTES, 'final_step_loss': candidate.get('final_step_loss'),
+            'probe_loss_before': candidate.get('probe_loss_before'), 'probe_loss_after': candidate.get('probe_loss_after'),
+            'steps': candidate.get('steps'), 'epochs_completed': candidate.get('epochs_completed'),
+            'selected_step': candidate.get('selected_step'), 'learning_rate': candidate.get('learning_rate'),
             'original_exam': case_statuses('original_exam'), 'additional_exam': case_statuses('additional_exam'),
             'failed_checks': [key for key, value in candidate.get('checks', {}).items() if not value],
             'failure_reasons': [str(reason)[:120] for reason in reasons[:3]], 'failure_reason_count': len(reasons)}
+
+
+def emit_diagnostics(output, report_path, secondary, result):
+    directories = {'Q3_K_M': output / 'diagnostic-Q3_K_M' if (output / 'diagnostic-Q3_K_M').is_dir() else output}
+    if secondary is not None:
+        directories['Q4_K_S'] = secondary
+    candidates = {}
+    for name, directory in directories.items():
+        report, error = read_json(directory / report_path.name)
+        if not error:
+            conversion, _ = read_json(directory / 'gguf-metrics.json')
+            candidates[name] = {'evaluation': report, 'conversion': conversion}
+    training, _ = read_json(output / 'training-metrics.json')
+    if not candidates and not training:
+        return
+    data = {'training': training, 'candidates': candidates, 'gate': result}
+    compressed = zlib.compress(json.dumps(data, ensure_ascii=False).encode('utf-8'), 9)
+    encoded = base64.b64encode(compressed).decode('ascii')
+    parts = [encoded[index:index + 2500] for index in range(0, len(encoded), 2500)]
+    if len(parts) > 46:
+        print('::warning file=.github/workflows/train-kolibri-gguf.yml,line=1::Полные ответы слишком велики для аннотаций; смотрите artifact.', flush=True)
+        return
+    for index, part in enumerate(parts, 1):
+        print(f'::notice file=.github/workflows/train-kolibri-gguf.yml,line=1,title=Training diagnostics {index} of {len(parts)}::TRAINING_DIAGNOSTIC_{index:03}_{len(parts):03}_{part}', flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description='Блокировка релиза при невыполнении требований к модели.')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--dataset', type=Path, required=True)
+    parser.add_argument('--validation-dataset', type=Path)
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--expected-server-id', required=True)
     parser.add_argument('--secondary-output', type=Path)
     args = parser.parse_args()
     try:
-        result = run_gate(args.output, args.dataset, args.manifest, args.report, args.expected_server_id, args.secondary_output)
+        result = run_gate(args.output, args.dataset, args.manifest, args.report, args.expected_server_id, args.secondary_output, args.validation_dataset)
     except Exception as error:
         result = {'passed': False, 'selected_quantization': None,
                   'failure_reasons': ['Ошибка выпускной проверки: ' + type(error).__name__ + ': ' + str(error)],
@@ -272,6 +424,7 @@ def main():
             brief = annotation_summary(name, candidate)
             text = json.dumps(brief, ensure_ascii=False, separators=(',', ':')).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
             print(f'::notice file=.github/workflows/train-kolibri-gguf.yml,line=1,title=Release gate {name}::{text}', flush=True)
+        emit_diagnostics(args.output, args.report, args.secondary_output, result)
         summary = os.environ.get('GITHUB_STEP_SUMMARY')
         if summary:
             with open(summary, 'a', encoding='utf-8') as handle:
