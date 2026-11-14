@@ -1,0 +1,82 @@
+name: Diagnose clean Q3 behavior independently
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - arena/0d487d0e-calibre
+    paths:
+      - '.github/workflows/diagnose-kolibri-q3.yml'
+      - '.github/scripts/diagnose_kolibri_q3.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kolibri-q3-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      HF_HUB_DISABLE_XET: '1'
+      OMP_NUM_THREADS: '4'
+      MKL_NUM_THREADS: '4'
+      TOKENIZERS_PARALLELISM: 'false'
+    steps:
+      - name: Check out current commit
+        uses: actions/checkout@v5
+      - name: Initialize work paths
+        run: |
+          echo "HF_HOME=$RUNNER_TEMP/kolibri-q3-hf" >> "$GITHUB_ENV"
+          echo "Q3_WORK=$RUNNER_TEMP/kolibri-q3-diagnostic" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/kolibri-q3-diagnostic"
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install matching dependencies
+        run: |
+          python -m pip install --no-cache-dir 'torch==2.6.0+cpu' --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+          python -m pip install --no-cache-dir -r python_studio/training/requirements-training.txt
+      - name: Build pinned llama.cpp
+        run: |
+          git clone --depth 1 --branch b7571 https://github.com/ggml-org/llama.cpp.git "$RUNNER_TEMP/llama.cpp"
+          test "$(git -C "$RUNNER_TEMP/llama.cpp" rev-parse HEAD)" = 2a85f720b8aa87488468024c0112542b7b742a0b
+          cmake -S "$RUNNER_TEMP/llama.cpp" -B "$RUNNER_TEMP/llama-build" -DGGML_NATIVE=ON -DLLAMA_CURL=OFF -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/llama-build" --target llama-quantize llama-server -j 4
+      - name: Obtain the pinned untrained weights
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+          from huggingface_hub import snapshot_download
+
+          sys.path.insert(0, 'python_studio/training')
+          from train_kolibri_gguf import BASE_MODEL, BASE_REVISION
+          snapshot_download(BASE_MODEL, revision=BASE_REVISION, local_dir=Path(os.environ['Q3_WORK']) / 'base',
+                            allow_patterns=['*.safetensors', '*.json', '*.txt', '*.model'])
+          PY
+      - name: Reconstruct and verify clean Q3 K M
+        run: |
+          python "$RUNNER_TEMP/llama.cpp/convert_hf_to_gguf.py" "$Q3_WORK/base" --outtype bf16 --outfile "$Q3_WORK/base-bf16.gguf"
+          rm -rf "$Q3_WORK/base" "$HF_HOME/hub/models--Qwen--Qwen2.5-3B-Instruct"
+          "$RUNNER_TEMP/llama-build/bin/llama-quantize" "$Q3_WORK/base-bf16.gguf" "$Q3_WORK/base-q3.gguf" Q3_K_M 4
+          test "$(sha256sum "$Q3_WORK/base-q3.gguf" | cut -d ' ' -f 1)" = 1dbef923b1826d16819cdb2b3ae23e215fc02e97408b7ca024cbf498ee55ab13
+          rm -f "$Q3_WORK/base-bf16.gguf"
+      - name: Compare format and prompt variants on independent PDF examples
+        run: |
+          python -u .github/scripts/diagnose_kolibri_q3.py --server "$RUNNER_TEMP/llama-build/bin/llama-server" --model "$Q3_WORK/base-q3.gguf" --out "$Q3_WORK/diagnostic.json" --threads 4
+      - name: Upload independent diagnostic
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: kolibri-q3-independent-diagnostic
+          path: |
+            ${{ runner.temp }}/kolibri-q3-diagnostic/*.json
+            ${{ runner.temp }}/kolibri-q3-diagnostic/*.log
+          if-no-files-found: warn
+          retention-days: 30
