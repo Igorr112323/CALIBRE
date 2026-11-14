@@ -234,6 +234,20 @@ def run_gate(output, dataset, manifest_path, report_path, expected_server_id, se
     return result
 
 
+def annotation_summary(name, candidate):
+    def case_statuses(field):
+        exam = candidate.get(field, {})
+        return {'passed': exam.get('passed'), 'total': exam.get('total'),
+                'cases': {item['case']: item.get('passed') for item in exam.get('cases', [])}}
+
+    reasons = candidate.get('failure_reasons', [])
+    return {'quantization': name, 'passed': candidate.get('passed', False), 'bytes': candidate.get('model_bytes'),
+            'limit_bytes_exclusive': MAX_MODEL_BYTES, 'final_step_loss': candidate.get('final_step_loss'),
+            'original_exam': case_statuses('original_exam'), 'additional_exam': case_statuses('additional_exam'),
+            'failed_checks': [key for key, value in candidate.get('checks', {}).items() if not value],
+            'failure_reasons': [str(reason)[:120] for reason in reasons[:3]], 'failure_reason_count': len(reasons)}
+
+
 def main():
     parser = argparse.ArgumentParser(description='Блокировка релиза при невыполнении требований к модели.')
     parser.add_argument('--output', type=Path, required=True)
@@ -255,10 +269,7 @@ def main():
     print(rendered, flush=True)
     if os.environ.get('GITHUB_ACTIONS') == 'true':
         for name, candidate in result.get('candidates', {}).items():
-            brief = {'quantization': name, 'passed': candidate.get('passed', False), 'bytes': candidate.get('model_bytes'),
-                     'limit_bytes_exclusive': MAX_MODEL_BYTES, 'final_step_loss': candidate.get('final_step_loss'),
-                     'original_exam': candidate.get('original_exam'), 'additional_exam': candidate.get('additional_exam'),
-                     'failure_reasons': candidate.get('failure_reasons', [])}
+            brief = annotation_summary(name, candidate)
             text = json.dumps(brief, ensure_ascii=False, separators=(',', ':')).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
             print(f'::notice file=.github/workflows/train-kolibri-gguf.yml,line=1,title=Release gate {name}::{text}', flush=True)
         summary = os.environ.get('GITHUB_STEP_SUMMARY')

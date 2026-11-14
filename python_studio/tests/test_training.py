@@ -2,6 +2,7 @@ import copy
 import hashlib
 import io
 import json
+import os
 import re
 import sys
 import tempfile
@@ -269,6 +270,31 @@ class ReleaseGateTests(unittest.TestCase):
         (self.directory / 'release-gate.json').write_text('{"passed": false}', encoding='utf-8')
         with mock.patch.object(sys, 'argv', argv), self.assertRaises(ValueError):
             prepare_release.main()
+
+    def test_github_annotation_stays_small_and_includes_all_scenarios(self):
+        empty = self.directory / 'missing'
+        report = empty / 'AI_EVALUATION_QWEN25_3B_FINETUNED.json'
+        argv = ['verify_release.py', '--output', str(empty), '--dataset', str(self.dataset), '--manifest', str(self.manifest),
+                '--report', str(report), '--expected-server-id', 'expected']
+        with mock.patch.object(sys, 'argv', argv), mock.patch.object(sys, 'stdout', new_callable=io.StringIO) as printed, \
+             mock.patch.dict(os.environ, {'GITHUB_ACTIONS': 'true'}, clear=True):
+            with self.assertRaises(SystemExit):
+                verify_release.main()
+        notices = [line for line in printed.getvalue().splitlines() if line.startswith('::notice ')]
+        self.assertEqual(len(notices), 1)
+        raw = notices[0].split('::', 2)[-1]
+        self.assertLess(len(raw.encode('utf-8')), 3000)
+        brief = json.loads(raw)
+        self.assertEqual(set(brief['original_exam']['cases']), verify_release.ORIGINAL_CASES)
+        self.assertEqual(set(brief['additional_exam']['cases']), verify_release.EXTRA_CASES)
+        self.assertTrue(brief['failure_reasons'])
+        for item in self.report['cases'] + self.report['additional_cases']:
+            item['reply'] = 'Д' * 10000
+        self.report['cases'][0]['heuristic_check'] = False
+        self.save()
+        summary = verify_release.annotation_summary('Q3_K_M', self.gate())
+        self.assertLess(len(json.dumps(summary, ensure_ascii=False).encode('utf-8')), 3000)
+        self.assertNotIn('Д' * 100, json.dumps(summary, ensure_ascii=False))
 
     def test_missing_gguf_module_still_reports_all_scenarios(self):
         with mock.patch.object(verify_release, 'gguf', None):
