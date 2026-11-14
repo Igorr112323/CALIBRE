@@ -9,10 +9,11 @@ import zlib
 from pathlib import Path
 
 import gguf
+import httpx
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'python_studio' / 'training'))
-from evaluate_candidates import REPORT_NAME, examine
+from evaluate_candidates import REPORT_NAME, examine, wait_for_server
 from train_kolibri_gguf import BASE_MODEL, BASE_REVISION, MODEL_NAME, sha256_file
 from verify_release import EXTRA_ORDER, ORIGINAL_ORDER, integer_field, summarize_cases, text_field
 
@@ -26,10 +27,50 @@ def encoded_notices(label, payload):
         print(f'::notice file=.github/workflows/benchmark-kolibri-baseline.yml,line=1,title=Baseline {label} fragment {index} of {len(pieces)}::BASELINE_{label}_{index:03}_{len(pieces):03}_{piece}', flush=True)
 
 
+def verify_chatml(server, model, host, port, threads, expected_path, output):
+    expected = json.loads(expected_path.read_text(encoding='utf-8'))
+    samples = expected.get('samples', [])
+    if not samples:
+        raise ValueError('Нет примеров для проверки ChatML и токенизации.')
+    command = [str(server), '--model', str(model), '--alias', MODEL_NAME, '--host', host, '--port', str(port),
+               '--ctx-size', '8192', '--threads', str(threads), '--parallel', '1', '--jinja', '-ngl', '0']
+    results = []
+    with (output / 'chatml-server.log').open('w', encoding='utf-8') as log:
+        process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
+        try:
+            wait_for_server(process, port, 360)
+            for sample in samples:
+                template = httpx.post(f'http://127.0.0.1:{port}/apply-template', json={'messages': sample['messages']}, timeout=30, trust_env=False)
+                template.raise_for_status()
+                prompt = template.json()['prompt']
+                tokenized = httpx.post(f'http://127.0.0.1:{port}/tokenize',
+                                       json={'content': prompt, 'add_special': False, 'parse_special': True}, timeout=30, trust_env=False)
+                tokenized.raise_for_status()
+                tokens = tokenized.json()['tokens']
+                results.append({'case': sample['case'], 'prompt_identical': prompt == sample['prompt'],
+                                'tokens_identical': tokens == sample['token_ids'], 'token_count': len(tokens),
+                                'prompt_sha256': hashlib.sha256(prompt.encode('utf-8')).hexdigest()})
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=15)
+    result = {'tokenizer': expected.get('tokenizer'), 'template_sha256': expected.get('template_sha256'),
+              'samples': results, 'all_identical': all(item['prompt_identical'] and item['tokens_identical'] for item in results)}
+    (output / 'chatml-audit.json').write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    if not result['all_identical']:
+        raise ValueError('ChatML или токенизация HF и llama-server не совпадают.')
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description='Проверка неизменённой базовой Qwen в том же сервере и квантовании.')
     parser.add_argument('--source-gguf', type=Path, required=True)
     parser.add_argument('--source-manifest', type=Path)
+    parser.add_argument('--chatml-audit', type=Path)
     parser.add_argument('--quantize', type=Path, required=True)
     parser.add_argument('--server', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
@@ -43,8 +84,8 @@ def main():
     args = parser.parse_args()
     if args.threads < 1 or not 1 <= args.port <= 65535 or not all(path.is_file() for path in (args.source_gguf, args.quantize, args.server)):
         parser.error('Не найдены входные файлы или заданы некорректные параметры.')
-    if not args.allow_tiny_smoke and not args.source_manifest:
-        parser.error('Для 3B требуется манифест исходного снимка весов.')
+    if not args.allow_tiny_smoke and (not args.source_manifest or not args.chatml_audit):
+        parser.error('Для 3B нужны манифест исходных весов и проверка ChatML.')
     source = gguf.GGUFReader(args.source_gguf)
     architecture = text_field(source, 'general.architecture')
     layers = integer_field(source, 'qwen2.block_count')
@@ -86,6 +127,11 @@ def main():
         provenance.update(model_bytes=model.stat().st_size, model_sha256=sha256_file(model),
                           gguf_file_type=integer_field(reader, 'general.file_type'))
         del reader
+        if args.chatml_audit:
+            chatml = verify_chatml(args.server, model, args.host, args.port, args.threads, args.chatml_audit, args.output)
+            if chatml['template_sha256'] != source_template_sha:
+                raise ValueError('Проверка ChatML использовала другой шаблон токенизатора.')
+            provenance['chatml_audit'] = chatml
         (args.output / 'baseline-model-metrics.json').write_text(json.dumps(provenance, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         result = examine(args.output, args.server, args.host, args.port, args.threads, args.baseline_case, args.extra_case, 360)
         report = json.loads(report_path.read_text(encoding='utf-8')) if report_path.is_file() else {}
