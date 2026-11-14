@@ -37,6 +37,14 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.11'
+      - name: Check resources and enable swap
+        run: |
+          df -h
+          free -h
+          sudo fallocate -l 8G /mnt/kolibri-q3.swap
+          sudo chmod 600 /mnt/kolibri-q3.swap
+          sudo mkswap /mnt/kolibri-q3.swap
+          sudo swapon /mnt/kolibri-q3.swap
       - name: Install matching dependencies
         run: |
           python -m pip install --no-cache-dir 'torch==2.6.0+cpu' --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
@@ -57,15 +65,18 @@ jobs:
 
           sys.path.insert(0, 'python_studio/training')
           from train_kolibri_gguf import BASE_MODEL, BASE_REVISION
-          snapshot_download(BASE_MODEL, revision=BASE_REVISION, local_dir=Path(os.environ['Q3_WORK']) / 'base',
+          snapshot_download(BASE_MODEL, revision=BASE_REVISION, local_dir=Path(os.environ['Q3_WORK']) / 'base-weights',
                             allow_patterns=['*.safetensors', '*.json', '*.txt', '*.model'])
           PY
       - name: Reconstruct and verify clean Q3 K M
         run: |
-          python "$RUNNER_TEMP/llama.cpp/convert_hf_to_gguf.py" "$Q3_WORK/base" --outtype bf16 --outfile "$Q3_WORK/base-bf16.gguf"
-          rm -rf "$Q3_WORK/base" "$HF_HOME/hub/models--Qwen--Qwen2.5-3B-Instruct"
-          "$RUNNER_TEMP/llama-build/bin/llama-quantize" "$Q3_WORK/base-bf16.gguf" "$Q3_WORK/base-q3.gguf" Q3_K_M 4
-          test "$(sha256sum "$Q3_WORK/base-q3.gguf" | cut -d ' ' -f 1)" = 1dbef923b1826d16819cdb2b3ae23e215fc02e97408b7ca024cbf498ee55ab13
+          set -o pipefail
+          python "$RUNNER_TEMP/llama.cpp/convert_hf_to_gguf.py" "$Q3_WORK/base-weights" --outtype bf16 --outfile "$Q3_WORK/base-bf16.gguf" 2>&1 | tee "$Q3_WORK/convert.log"
+          rm -rf "$Q3_WORK/base-weights" "$HF_HOME/hub/models--Qwen--Qwen2.5-3B-Instruct"
+          "$RUNNER_TEMP/llama-build/bin/llama-quantize" "$Q3_WORK/base-bf16.gguf" "$Q3_WORK/base-q3.gguf" Q3_K_M 4 2>&1 | tee "$Q3_WORK/quantize.log"
+          actual_sha=$(sha256sum "$Q3_WORK/base-q3.gguf" | cut -d ' ' -f 1)
+          echo "::notice file=.github/workflows/diagnose-kolibri-q3.yml,line=1,title=Clean Q3 SHA-256::$actual_sha"
+          test "$actual_sha" = 1dbef923b1826d16819cdb2b3ae23e215fc02e97408b7ca024cbf498ee55ab13
           rm -f "$Q3_WORK/base-bf16.gguf"
       - name: Compare format and prompt variants on independent PDF examples
         run: |
