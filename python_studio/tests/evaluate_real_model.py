@@ -65,7 +65,10 @@ def check(case, answer, source, path, apply_error):
         return False
     op = ops[0]
     if case == 'exact_number_edit':
-        return op['action'] == 'set' and op['path'] == path and op['value'] == source.replace('10 мм', '12 мм') and '12 мм' in reply and not answer['unverified_quantities']
+        normalized_reply = reply.replace('ё', 'е')
+        warning = any(value in normalized_reply for value in ('не подтвержден', 'не заводск', 'не является заводск'))
+        return (op['action'] == 'set' and op['path'] == path and op['value'] == source.replace('10 мм', '12 мм') and
+                '12 мм' in reply and warning and not answer['unverified_quantities'])
     if case == 'preserve_number':
         value = op['value'].lower()
         return op['action'] == 'set' and op['path'] == path and op['value'] != source and all(word in value for word in ('винт', 'пальц', 'земл', 'слева', 'справа', '10 мм'))

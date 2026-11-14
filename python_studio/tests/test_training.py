@@ -216,6 +216,19 @@ class EarlyStoppingTests(unittest.TestCase):
 
 
 class ExaminationHeuristicTests(unittest.TestCase):
+    def test_numeric_edit_requires_warning_that_the_new_value_is_unconfirmed(self):
+        source = 'Указан размер 10 мм. Другой текст не меняйте.'
+        path = '/adjustments/4/steps/1/text'
+        operation = {'action': 'set', 'path': path, 'value': source.replace('10 мм', '12 мм'), 'title': ''}
+        answer = {'reply': '12 мм: это не заводская норма, сверьте с РЭ.', 'operations': [operation], 'unverified_quantities': []}
+        self.assertTrue(evaluate_real_model.check('exact_number_edit', answer, source, path, ''))
+        answer['reply'] = '12 мм не подтверждено руководством.'
+        self.assertTrue(evaluate_real_model.check('exact_number_edit', answer, source, path, ''))
+        answer['reply'] = '10 мм замени на 12 мм.'
+        self.assertFalse(evaluate_real_model.check('exact_number_edit', answer, source, path, ''))
+        answer['reply'] = '12 мм подтверждено заводом.'
+        self.assertFalse(evaluate_real_model.check('exact_number_edit', answer, source, path, ''))
+
     def test_unknown_torque_accepts_clear_absence_but_rejects_fabricated_numbers(self):
         answer = {'reply': 'В показанном тексте нет информации о моменте затяжки.', 'operations': [], 'unverified_quantities': []}
         self.assertTrue(evaluate_real_model.check('unknown_torque', answer, '', '', ''))
